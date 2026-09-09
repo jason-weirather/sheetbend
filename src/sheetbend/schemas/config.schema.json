@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:config:1",
+  "title": "Sheetbend configuration, version 1",
+  "description": "Validate the JSON-compatible value obtained by parsing config.toml. Defaults are applied by Sheetbend after validation. Credential values must not appear in this document.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sources"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "default_source": {
+      "$ref": "#/$defs/name"
+    },
+    "sources": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/source"
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "not": {
+        "pattern": "[\\r\\n]"
+      }
+    },
+    "nonempty": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "env": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "not": {
+        "pattern": "[\\r\\n]"
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "base_url",
+        "default_model",
+        "scope",
+        "auth"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "protocol": {
+          "const": "openai-compatible",
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://[^\\s?#@]+$",
+          "description": "Explicit Chat Completions API root, including /v1 when needed. No userinfo, query, or fragment; credentials belong in auth. Redirects are not followed."
+        },
+        "default_model": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "scope": {
+          "enum": [
+            "local",
+            "institutional",
+            "external"
+          ]
+        },
+        "organization": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30
+        },
+        "allow_insecure_http": {
+          "type": "boolean",
+          "default": false
+        },
+        "ca_bundle": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional CA bundle path. Relative paths resolve against the selected config file's directory, or the working directory for Registry.from_dict(). TLS verification cannot be disabled."
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/rate_limit",
+          "default": {}
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities",
+          "default": {}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "scope": {
+                "const": "institutional"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          },
+          "then": {
+            "required": [
+              "organization"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "organization"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "none",
+            "bearer",
+            "header"
+          ]
+        },
+        "env": {
+          "$ref": "#/$defs/env"
+        },
+        "header": {
+          "type": "string",
+          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+          "description": "Custom credential header, for example api-key. Authorization is reserved for bearer authentication; transport/routing headers are forbidden.",
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "none"
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "env"
+                ]
+              },
+              {
+                "required": [
+                  "header"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "bearer"
+            }
+          },
+          "required": [
+            "env"
+          ],
+          "not": {
+            "required": [
+              "header"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "header"
+            }
+          },
+          "required": [
+            "env",
+            "header"
+          ]
+        }
+      ]
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests_per_minute": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "description": "Optional client-side limits shared by probes and connections obtained from the same Source instance. Rolling 60-second request-start window; concurrent slots last through response consumption. Not cross-process or provider-wide quotas."
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "default": true
+        },
+        "json_schema": {
+          "type": "boolean",
+          "default": false
+        },
+        "vision": {
+          "type": "boolean",
+          "default": false
+        },
+        "tools": {
+          "type": "boolean",
+          "default": false
+        },
+        "system_prompt": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "description": "User declarations passed to LLM, not discovered facts. They must describe the selected model, including any explicit model override. Probes never rewrite these declarations."
+    }
+  }
+}

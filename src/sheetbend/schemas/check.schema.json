@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:check:1",
+  "title": "Sheetbend diagnostic result, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "model", "test", "ok", "elapsed_seconds", "message", "model_ids"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "source": {"type": "string"},
+    "model": {"type": "string"},
+    "test": {"enum": ["models", "text", "schema", "stream"]},
+    "ok": {"type": "boolean"},
+    "elapsed_seconds": {"type": "number", "minimum": 0},
+    "message": {"type": "string"},
+    "model_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,33 @@
+# All addresses/model IDs are placeholders: replace them before probing.
+schema_version = 1
+default_source = "local"
+
+[sources.local]
+protocol = "openai-compatible"
+base_url = "http://127.0.0.1:8000/v1"
+default_model = "your-local-model"
+scope = "local"
+auth = { type = "none" }
+
+[sources.local.rate_limit]
+requests_per_minute = 60
+max_concurrent = 2
+
+[sources.local.capabilities]
+json_schema = true  # A declaration; run `sheetbend check local --test schema`.
+
+[sources.msk]
+protocol = "openai-compatible"
+base_url = "https://inference.example.org/v1"
+default_model = "your-institutional-model"
+scope = "institutional"
+organization = "msk"
+auth = { type = "bearer", env = "MSK_LLM_API_KEY" }
+# ca_bundle = "/path/to/institution-ca.pem"
+
+[sources.external]
+protocol = "openai-compatible"
+base_url = "https://api.example.net/v1"
+default_model = "your-external-model"
+scope = "external"
+auth = { type = "header", env = "EXTERNAL_LLM_API_KEY", header = "api-key" }
