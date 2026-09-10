@@ -128,7 +128,7 @@ registry = Registry.from_file()
 source = registry.source(
     "work",
     allowed_scopes={"institutional"},
-    organization="msk",
+    organization="company",
 )
 ```
 
@@ -140,7 +140,7 @@ permits none; `None` is not an unrestricted shorthand.
 `local` means processing on the executing Python process's host, not the laptop
 showing a remote notebook. A tunnel is not local processing. `institutional`
 requires an organization identifier; other scopes must not include one.
-`organization="msk"` is an exact configured boundary check, not an SDK header.
+`organization="company"` is an exact configured boundary check, not an SDK header.
 These declarations do not certify privacy, institutional approval, model safety,
 or absence of onward forwarding. There is no automatic trust ranking or rerouting.
 
