@@ -320,3 +320,42 @@ def test_concurrent_short_requests_leave_consistent_counts(config, tmp_path):
     rows = Runtime().snapshot()["requests"]
     assert len(rows) == 40
     assert all(row["state"] == "done" for row in rows)
+
+
+def test_macos_runtime_directory_uses_darwin_user_temp(monkeypatch, tmp_path):
+    import subprocess
+    from types import SimpleNamespace
+
+    import sheetbend.runtime.storage as storage
+
+    monkeypatch.setattr(storage.sys, "platform", "darwin")
+    monkeypatch.delenv("SHEETBEND_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    seen = []
+
+    def run(command, **kwargs):
+        seen.append((command, kwargs))
+        return SimpleNamespace(stdout=f"{tmp_path}\n")
+
+    monkeypatch.setattr(storage.subprocess, "run", run)
+    assert storage.runtime_directory() == tmp_path / "sheetbend"
+    assert seen == [(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], {
+        "check": True, "capture_output": True, "text": True, "timeout": 5,
+    })]
+
+
+def test_macos_runtime_directory_getconf_failure_is_sheetbend_error(monkeypatch):
+    import subprocess
+
+    import sheetbend.runtime.storage as storage
+
+    monkeypatch.setattr(storage.sys, "platform", "darwin")
+    monkeypatch.delenv("SHEETBEND_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+
+    def fail(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, args[0])
+
+    monkeypatch.setattr(storage.subprocess, "run", fail)
+    with pytest.raises(CoordinationError, match="macOS user runtime directory"):
+        storage.runtime_directory()

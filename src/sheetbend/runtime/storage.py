@@ -64,9 +64,16 @@ def runtime_directory(directory: str | os.PathLike[str] | None = None) -> Path:
     if xdg and Path(xdg).is_absolute():
         return Path(xdg) / "sheetbend"
     if sys.platform == "darwin":
-        local_temp = os.confstr("CS_DARWIN_USER_TEMP_DIR")
+        try:
+            result = subprocess.run(
+                ["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"],
+                check=True, capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CoordinationError("Cannot determine the macOS user runtime directory.") from exc
+        local_temp = result.stdout.strip()
         if not local_temp:
-            raise CoordinationError("macOS did not supply a local user runtime directory.")
+            raise CoordinationError("macOS returned an empty user runtime directory.")
         return Path(local_temp) / "sheetbend"
     if sys.platform.startswith("linux"):
         return Path("/tmp") / f"sheetbend-{os.getuid()}"
