@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="296" viewBox="100 42 560 296" role="img" aria-labelledby="title desc">
+<title id="title">Sheetbend knot mark (mono)</title>
+<desc id="desc">Two separate ropes joined in a single sheet bend. The thick rope forms an open bight. The thin rope enters through the bight, wraps behind both legs, and returns under its own incoming part. Both short working ends are above the long standing parts. The crossing gaps are transparent. Original vector drawing, not a raster trace.</desc>
+<!-- Crossing construction, following thin rope B from right standing end:
+ A-over-B at bight nose; B-over-A at upper leg; A-over-B at back upper leg;
+ A-over-B at back lower leg; B-over-A at lower return; B-entry-over-B-return
+ at the self-tuck; B-over-A at upper exit. Two working ends above.
+ B-entry and B-wrap are adjoining pieces of one continuous logical rope;
+ their shared point is (278,160). Splitting lets masks show the self-tuck.
+ No copied artwork, bitmap, embedded font, script, or external resource. -->
+<defs>
+<mask id="mask-a" maskUnits="userSpaceOnUse" x="0" y="0" width="660" height="360" style="mask-type:luminance">
+  <rect width="660" height="360" fill="white"/>
+  <path d="M 422.112,189.519 C 403.988,174.216 385.817,157.199 365.579,145.079" fill="none" stroke="black" stroke-width="40" stroke-linecap="round"/>
+  <path d="M 349.46,299.312 C 356.923,294.281 364.181,286.783 371,277 C 379.267,265.485 386.401,254.057 392.865,242.561" fill="none" stroke="black" stroke-width="40" stroke-linecap="round"/>
+  <path d="M 420.326,186.936 C 424.763,177.186 429.24,167.235 434,157 C 439.627,144.339 444.883,132.419 449.986,121.329" fill="none" stroke="black" stroke-width="40" stroke-linecap="round"/>
+</mask>
+<mask id="mask-bf" maskUnits="userSpaceOnUse" x="0" y="0" width="660" height="360" style="mask-type:luminance">
+  <rect width="660" height="360" fill="white"/>
+  <path d="M 487.153,256.347 C 499.178,246.423 506,232.758 506,215 C 506,206.142 504.46,197.932 501.633,190.583" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+  <path d="M 311.482,181.739 C 291.538,181.723 271.9,178.045 252,169 C 248.757,167.61 245.539,166.078 242.344,164.417" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+  <path d="M 242.218,250 C 249.479,250 256.739,250 264,250 C 281.757,250 298,252.919 313.618,256.838" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+</mask>
+<mask id="mask-bw" maskUnits="userSpaceOnUse" x="0" y="0" width="660" height="360" style="mask-type:luminance">
+  <rect width="660" height="360" fill="white"/>
+  <path d="M 487.153,256.347 C 499.178,246.423 506,232.758 506,215 C 506,206.142 504.46,197.932 501.633,190.583" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+  <path d="M 311.482,181.739 C 291.538,181.723 271.9,178.045 252,169 C 248.757,167.61 245.539,166.078 242.344,164.417" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+  <path d="M 242.218,250 C 249.479,250 256.739,250 264,250 C 281.757,250 298,252.919 313.618,256.838" fill="none" stroke="black" stroke-width="50" stroke-linecap="round"/>
+  <path d="M 450.143,210.762 C 430.121,198.038 411.243,179.418 390.989,163.137" fill="none" stroke="black" stroke-width="40" stroke-linecap="round"/>
+</mask>
+</defs>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path id="rope-a" d="M 140,250 C 181.333,250 222.667,250 264,250 C 318,250 358,277 409,277 C 466,277 506,258 506,215 C 506,171 468,143 423,157 C 360,178 307,194 252,169 C 231,160 211,145 192,128" stroke="#173348" stroke-width="40" mask="url(#mask-a)"/>
+  <path id="rope-b-entry" d="M 630,226 C 585.333,226 540.667,226 496,226 C 446,226 410,170 362,143 C 322,117 285,119 278,160" stroke="#173348" stroke-width="30" mask="url(#mask-bf)"/>
+  <path id="rope-b-wrap-and-tuck" d="M 278,160 C 272,198 271,265 296,291 C 320,317 348,310 371,277 C 399,238 414,200 434,157 C 450,121 463,91 478,69" stroke="#173348" stroke-width="30" mask="url(#mask-bw)"/>
+</g>
+</svg>

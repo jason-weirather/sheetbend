@@ -1,4 +1,9 @@
-# sheetbend
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/sheetbend-logo-dark.svg">
+    <img src="docs/assets/sheetbend-logo.svg" width="420" alt="sheetbend">
+  </picture>
+</h1>
 
 Discover, inspect, and verify intelligence sources from one explicit configuration.
 Use the same names in a notebook, command-line application, or Python library,
@@ -329,7 +334,8 @@ which is not an integration pass.
 
 `pyproject.toml` is the sole authored package version. The config, check,
 check-report, and activity schemas are packaged with `py.typed`. The experimental
-API and Apache-2.0 license remain. No image assets or logo changes in this update.
+API and Apache-2.0 license remain. See [the branding notes](docs/branding.md) for
+the SVG logo assets and their knot construction.
 
 ### Implementation references
 
