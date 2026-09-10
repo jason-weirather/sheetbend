@@ -22,9 +22,16 @@ def adapter(monkeypatch):
     sdk = ModuleType("openai")
     sdk.OpenAI = object
 
+    class Omit:
+        pass
+
+    sdk.Omit = Omit
+
     class Chat:
         def __init__(self, **kwargs):
             self.model_id = kwargs["model_id"]
+        def build_kwargs(self, prompt, stream):
+            return {"stream_options": {"include_usage": True}} if stream else {}
         def execute(self, prompt, stream, response, conversation=None, key=None):
             response.executed += 1
             if prompt == "error":
@@ -50,6 +57,7 @@ def _connected(adapter, config, tmp_path, **labels):
     return adapter._ConnectedChat(
         client=object(), admission=source._admission, model_id="test-model",
         application=labels.get("application", "notebook"), tool=labels.get("tool"),
+        omit_authorization=labels.get("omit_authorization", True),
     )
 
 
@@ -146,3 +154,16 @@ def test_independent_connection_labels(adapter, config, tmp_path):
     assert {(r["application"], r["tool"]) for r in rows} == {("downrange", "qc"), ("notebook", "exploration")}
     first._close()
     second._close()
+
+
+def test_authorization_omission_is_a_per_request_override(adapter, config, tmp_path):
+    model = _connected(adapter, config, tmp_path, omit_authorization=True)
+    kwargs = model.build_kwargs("hello", False)
+    assert isinstance(kwargs["extra_headers"]["Authorization"], adapter.openai.Omit)
+    model._close()
+
+
+def test_bearer_authorization_does_not_add_request_omission(adapter, config, tmp_path):
+    model = _connected(adapter, config, tmp_path, omit_authorization=False)
+    assert "extra_headers" not in model.build_kwargs("hello", False)
+    model._close()

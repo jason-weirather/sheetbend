@@ -25,13 +25,15 @@ class _ConnectedChat(Chat):
 
     def __init__(
         self, *, client: openai.OpenAI, admission: _Admission,
-        application: str | None, tool: str | None, **options: Any,
+        application: str | None, tool: str | None, omit_authorization: bool,
+        **options: Any,
     ) -> None:
         super().__init__(**options)
         self._client = client
         self._admission = admission
         self._application = application
         self._tool = tool
+        self._omit_authorization = omit_authorization
         self._closed = Event()
         self._pid = os.getpid()
         self._lock = Lock()
@@ -53,6 +55,16 @@ class _ConnectedChat(Chat):
     def _ensure_open(self) -> None:
         if self._closed.is_set() or self._pid != os.getpid():
             raise ConnectionClosedError("Consume responses in the creating process's source.connect() context.")
+
+    def build_kwargs(self, prompt: llm.Prompt, stream: bool) -> dict[str, Any]:
+        """Build LLM's request while suppressing the SDK placeholder credential when needed."""
+        kwargs = super().build_kwargs(prompt, stream)
+        if self._omit_authorization:
+            # OpenAI 3.x recognizes Omit() for authentication validation only when
+            # supplied as a per-request override. Putting it in client defaults is
+            # stripped before validation and raises TypeError.
+            kwargs["extra_headers"] = {"Authorization": openai.Omit()}
+        return kwargs
 
     def execute(
         self, prompt: llm.Prompt, stream: bool, response: llm.Response,
@@ -126,8 +138,8 @@ def connected_model(
     """Bind LLM without registering aliases, writing logs, or consulting ambient keys."""
     if os.environ.get("OPENAI_CUSTOM_HEADERS"):
         raise CredentialError("Unset OPENAI_CUSTOM_HEADERS before opening a source-bound connection.")
-    headers: dict[str, Any] = source.resolve_auth()
-    headers.setdefault("Authorization", openai.Omit())
+    headers = source.resolve_auth()
+    omit_authorization = "Authorization" not in headers
     with openai.DefaultHttpxClient(
         verify=source._tls_context(), trust_env=False, follow_redirects=False,
     ) as http_client, openai.OpenAI(
@@ -137,7 +149,8 @@ def connected_model(
     ) as client:
         connected = _ConnectedChat(
             client=client, admission=source._admission, application=application, tool=tool,
-            model_id=model, model_name=model, api_base=source.base_url,
+            omit_authorization=omit_authorization, model_id=model, model_name=model,
+            api_base=source.base_url,
             can_stream=capabilities["streaming"], supports_schema=capabilities["json_schema"],
             vision=capabilities["vision"], supports_tools=capabilities["tools"],
             allows_system_prompt=capabilities["system_prompt"],
