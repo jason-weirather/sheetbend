@@ -134,11 +134,10 @@ def test_explicit_insecure_http(config):
     assert Registry.from_dict(config).source()
 
 
-def test_no_default_inference_or_fallback(config):
+def test_unique_source_resolves_without_default(config):
     config.pop("default_source")
     registry = Registry.from_dict(config)
-    with pytest.raises(SelectionError):
-        registry.source()
+    assert registry.source().name == "local"
     with pytest.raises(SelectionError):
         registry.source("missing")
     config["default_source"] = "missing"
@@ -160,6 +159,73 @@ def test_scope_and_organization_filters(config):
         registry.source(allowed_scopes="institutional")
     with pytest.raises(ValueError):
         registry.source(allowed_scopes=["typo"])
+
+
+def test_scope_order_overrides_lower_priority_default(config):
+    company = deepcopy(config["sources"]["local"])
+    company.update(
+        base_url="https://company.example/v1", scope="institutional", organization="company",
+    )
+    config["sources"]["company"] = company
+    config["default_source"] = "company"
+    registry = Registry.from_dict(config)
+
+    assert registry.source().name == "local"
+    assert registry.source(allowed_scopes=("local", "institutional")).name == "local"
+    assert registry.source(allowed_scopes=("institutional", "local")).name == "company"
+    assert registry.source("company", allowed_scopes=("local", "institutional")).name == "company"
+    with pytest.raises(SelectionError, match="outside allowed_scopes"):
+        registry.source("company", allowed_scopes=("local",))
+
+
+def test_default_breaks_ties_only_in_highest_eligible_scope(config):
+    second = deepcopy(config["sources"]["local"])
+    second["base_url"] = "http://127.0.0.2:8000/v1"
+    config["sources"]["second-local"] = second
+
+    company = deepcopy(config["sources"]["local"])
+    company.update(
+        base_url="https://company.example/v1", scope="institutional", organization="company",
+    )
+    config["sources"]["company"] = company
+    config["default_source"] = "company"
+    registry = Registry.from_dict(config)
+
+    with pytest.raises(SelectionError, match="highest-priority scope 'local'"):
+        registry.source(allowed_scopes=("local", "institutional"))
+
+    config["default_source"] = "second-local"
+    assert Registry.from_dict(config).source(
+        allowed_scopes=("local", "institutional")
+    ).name == "second-local"
+
+
+def test_organization_participates_in_priority_resolution(config):
+    config.pop("default_source")
+    config["sources"].clear()
+    for name, organization in (("company", "company"), ("partner", "partner")):
+        source = {
+            "protocol": "openai-compatible",
+            "base_url": f"https://{name}.example/v1",
+            "default_model": "test-model",
+            "scope": "institutional",
+            "organization": organization,
+            "auth": {"type": "none"},
+            "models": {"test-model": {}},
+        }
+        config["sources"][name] = source
+    registry = Registry.from_dict(config)
+    assert registry.source(
+        allowed_scopes=("local", "institutional"), organization="partner"
+    ).name == "partner"
+
+
+def test_multiple_allowed_scopes_must_preserve_order(config):
+    assert Registry.from_dict(config).source(allowed_scopes={"local"}).name == "local"
+    with pytest.raises(TypeError, match="preserve priority order"):
+        Registry.from_dict(config).source(allowed_scopes={"local", "institutional"})
+    with pytest.raises(ValueError, match="duplicate"):
+        Registry.from_dict(config).source(allowed_scopes=["local", "local"])
 
 
 def test_example_validates():

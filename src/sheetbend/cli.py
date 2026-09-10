@@ -80,7 +80,7 @@ def sources_command(config_path: Path | None, as_json: bool) -> None:
 @click.pass_obj
 @_errors
 def inspect_command(config_path: Path | None, source_name: str | None, as_json: bool) -> None:
-    """Inspect one source (or the explicit configured default), offline."""
+    """Inspect one explicit or deterministically resolved source, offline."""
     source = Registry.from_file(config_path).source(
         source_name, allowed_scopes=("local", "institutional", "external")
     )

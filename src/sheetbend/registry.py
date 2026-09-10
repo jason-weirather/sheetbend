@@ -1,4 +1,4 @@
-"""The selected, validated registry and explicit source selection."""
+"""The selected, validated registry and deterministic source resolution."""
 
 from collections.abc import Collection, Mapping
 from copy import deepcopy
@@ -67,32 +67,68 @@ class Registry:
         allowed_scopes: Collection[str] = ("local", "institutional"),
         organization: str | None = None,
     ) -> Source:
-        """Select one source; never guess, reroute, or relax explicit restrictions.
+        """Select one source using explicit names or ordered scope constraints.
 
-        The default excludes external sources. Pass all three scopes explicitly
-        to allow external use. Offline inspection may explicitly allow all scopes.
-        organization requires that exact institutional boundary. Scopes describe
-        configured processing boundaries, not verified data-handling permissions.
+        An explicit name is absolute and must satisfy the supplied constraints.
+        Without a name, ``allowed_scopes`` is both an allow-list and a priority
+        order. The first scope with eligible sources wins. The configured default
+        breaks ties only inside that highest-priority eligible scope; otherwise a
+        unique source is selected and ambiguity fails. External access must still
+        be explicitly included. ``organization`` narrows institutional candidates.
         """
         if allowed_scopes is None or isinstance(allowed_scopes, str):
             raise TypeError("allowed_scopes must be a collection of scope names, not a string.")
-        unknown = set(allowed_scopes) - {"local", "institutional", "external"}
+        if isinstance(allowed_scopes, (set, frozenset)) and len(allowed_scopes) > 1:
+            raise TypeError("allowed_scopes with multiple entries must preserve priority order.")
+        scope_order = tuple(allowed_scopes)
+        if len(set(scope_order)) != len(scope_order):
+            raise ValueError("allowed_scopes must not contain duplicate scope names.")
+        unknown = set(scope_order) - {"local", "institutional", "external"}
         if unknown:
             raise ValueError(f"Unknown allowed scopes: {sorted(unknown)}")
-        selected = self.default_source if name is None else name
-        if selected is None:
-            raise SelectionError("Select a source by name or configure default_source.")
-        try:
-            source = self._sources[selected]
-        except KeyError as exc:
-            raise SelectionError(f"Source {selected!r} is not configured.") from exc
-        if source.scope not in allowed_scopes:
-            raise SelectionError(f"Source {selected!r} is outside allowed_scopes.")
-        if organization is not None and (
-            source.scope != "institutional" or source.organization != organization
-        ):
-            raise SelectionError(f"Source {selected!r} is outside the requested organization.")
-        return source
+
+        def eligible(source: Source) -> bool:
+            return (
+                source.scope in scope_order
+                and (
+                    organization is None
+                    or (source.scope == "institutional" and source.organization == organization)
+                )
+            )
+
+        if name is not None:
+            try:
+                source = self._sources[name]
+            except KeyError as exc:
+                raise SelectionError(f"Source {name!r} is not configured.") from exc
+            if source.scope not in scope_order:
+                raise SelectionError(f"Source {name!r} is outside allowed_scopes.")
+            if organization is not None and not eligible(source):
+                raise SelectionError(f"Source {name!r} is outside the requested organization.")
+            return source
+
+        default = self._sources.get(self.default_source)
+        for scope in scope_order:
+            candidates = [
+                source for source in self._sources.values()
+                if source.scope == scope and eligible(source)
+            ]
+            if not candidates:
+                continue
+            if default in candidates:
+                return default
+            if len(candidates) == 1:
+                return candidates[0]
+            names = ", ".join(source.name for source in candidates)
+            raise SelectionError(
+                f"Multiple sources satisfy highest-priority scope {scope!r}: {names}. "
+                "Select one explicitly."
+            )
+
+        qualifier = f" and organization {organization!r}" if organization is not None else ""
+        raise SelectionError(
+            f"No configured source satisfies allowed_scopes {scope_order!r}{qualifier}."
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return an independent, normalized configuration; never include secrets."""

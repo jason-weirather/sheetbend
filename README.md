@@ -15,9 +15,9 @@ connection yields an LLM model. Prompting, conversations, attachments, tools,
 schemas, and responses remain LLM's API, not another Sheetbend prompt language.
 
 Model-specific capabilities and `sheetbend top` provide a content-free view of
-applications using your sources on this host. Version 0.4 adds explicit reasoning
-controls: application intent stays portable, while each model's configuration
-specifies its endpoint-specific request settings.
+applications using your sources on this host. Version 0.4 added explicit reasoning
+controls. Version 0.5 makes `allowed_scopes` an ordered source preference: caller
+boundaries can select the best permitted scope without hard-coding a source name.
 
 ## Install
 
@@ -87,10 +87,11 @@ An explicitly selected missing, unreadable, or malformed configuration is an
 error. A missing implicit default is an empty registry. Loading, selecting, and
 printing sources creates no config or runtime files, resolves no secrets, and
 contacts no endpoints. There is no working-directory discovery, `.env` search,
-host guessing, automatic source fallback, or automatic model enrollment.
+host guessing, health-based source fallback, or automatic model enrollment.
 
-An existing registry is an owned snapshot. Reopen it after editing the file.
-Without `default_source`, callers must name a source, even when only one exists.
+An existing registry is an owned snapshot. Reopen it after editing the file. A
+`default_source` is useful as a tie-breaker, but a caller can also resolve a unique
+source from ordered `allowed_scopes` without naming one.
 
 ### Authentication and transport
 
@@ -130,30 +131,57 @@ requires explicit `allow_insecure_http = true`. Redirects and environment HTTP
 proxies are disabled. Ambient `OPENAI_CUSTOM_HEADERS` is rejected rather than
 silently changing source-bound credentials. SDK retries are disabled.
 
-### Caller boundaries
+### Caller boundaries and source priority
 
 ```python
 from sheetbend import Registry
 
 registry = Registry.from_file()
 source = registry.source(
-    "work",
-    allowed_scopes={"institutional"},
+    allowed_scopes=("local", "institutional"),
+)
+```
+
+`allowed_scopes` is both an allow-list and an **ordered preference**. The first
+scope containing an eligible source wins. The default order is
+`("local", "institutional")`, so local is preferred over institutional even when
+`default_source` names an institutional source. External access must still be
+explicitly included. Use a list or tuple when more than one scope is supplied; an
+unordered multi-item set is rejected. A one-item set such as `{"local"}` remains
+unambiguous and valid. An empty collection permits none; `None` is not an
+unrestricted shorthand.
+
+Within the highest-priority eligible scope, the configured `default_source` wins
+when it is one of the candidates. Otherwise a single candidate is selected. Multiple
+candidates without that tie-breaker raise `SelectionError` and must be named
+explicitly. Lower-priority sources are not considered merely to avoid ambiguity.
+For example, if `company` is the configured institutional default and `laptop` is
+the only local source, `allowed_scopes=("local", "institutional")` selects `laptop`,
+while reversing the order selects `company`.
+
+An explicit source name remains absolute rather than becoming a routing hint:
+
+```python
+source = registry.source(
+    "company",
+    allowed_scopes=("local", "institutional"),
     organization="company",
 )
 ```
 
-`Registry.source()` defaults to `{"local", "institutional"}`. External access must
-be explicitly allowed, for example `allowed_scopes={"external"}` for an external
-source, or all three scopes for an unrestricted application. An empty collection
-permits none; `None` is not an unrestricted shorthand.
+That selects `company` even though local appears first, provided the explicit source
+satisfies the supplied constraints. Naming an institutional source with
+`allowed_scopes=("local",)` still fails. `organization` participates in automatic
+resolution too, narrowing candidates to that exact institutional boundary before
+priority and ambiguity are evaluated.
 
 `local` means processing on the executing Python process's host, not the laptop
 showing a remote notebook. A tunnel is not local processing. `institutional`
-requires an organization identifier; other scopes must not include one.
-`organization="company"` is an exact configured boundary check, not an SDK header.
-These declarations do not certify privacy, institutional approval, model safety,
-or absence of onward forwarding. There is no automatic trust ranking or rerouting.
+requires an organization identifier; other scopes must not include one. These
+declarations do not certify privacy, institutional approval, model safety, or
+absence of onward forwarding. Source resolution is deterministic from caller
+constraints and configuration; there is no endpoint-health fallback or automatic
+retry through a different privacy boundary.
 
 ## Use the native LLM API
 

@@ -41,10 +41,10 @@ def test_cli_inspection_and_secret_redaction(monkeypatch):
     assert "PRIVATE_VALUE" not in result.output
 
 
-def test_default_source_not_guessed(isolated_config):
+def test_empty_registry_cannot_resolve_source(isolated_config):
     result = CliRunner().invoke(main, ["inspect"])
     assert result.exit_code != 0
-    assert "Select a source" in result.output
+    assert "No configured source satisfies" in result.output
 
 
 def test_check_json_failure_exit_status(isolated_config, monkeypatch):
