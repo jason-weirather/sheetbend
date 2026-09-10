@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sheetbend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Discover, inspect, and verify configured intelligence sources."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{name = "Jason L Weirather"}]
-dependencies = ["click>=8.1,<9", "httpx>=0.28,<0.29", "jsonschema>=4.23,<5"]
+dependencies = ["click>=8.1,<9", "httpx>=0.28,<0.29", "jsonschema>=4.23,<5", "psutil>=7,<8", "rich>=14,<16"]
 
 [project.optional-dependencies]
 llm = ["llm>=0.35,<0.36", "openai>=3,<4"]

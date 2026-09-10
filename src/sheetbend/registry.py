@@ -3,6 +3,7 @@
 from collections.abc import Collection, Mapping
 from copy import deepcopy
 from pathlib import Path
+import uuid
 import tomllib
 from typing import Any
 
@@ -15,15 +16,17 @@ class Registry:
     """An owned configuration snapshot; use from_file() or from_dict().
 
     Reading and displaying a registry never resolve secrets or access endpoints.
-    Repeated source() calls return the same Source, sharing its in-process limits.
+    Repeated source() calls return the same Source. File-backed registries
+    share host-local limits across cooperating applications.
     """
 
     def __init__(self, data: Mapping[str, Any], *, config_path: Path | None = None) -> None:
         self._data = validate_config(data)
-        self.config_path = config_path
-        base_dir = config_path.parent if config_path is not None else Path.cwd()
+        self.config_path = Path(config_path).expanduser().absolute() if config_path is not None else None
+        namespace = str(self.config_path.resolve()) if self.config_path is not None else f"memory:{uuid.uuid4()}"
+        base_dir = self.config_path.parent if self.config_path is not None else Path.cwd()
         self._sources = {
-            name: Source(name, definition, base_dir=base_dir)
+            name: Source(name, definition, base_dir=base_dir, namespace=namespace)
             for name, definition in self._data["sources"].items()
         }
 
@@ -38,7 +41,7 @@ class Registry:
             # A broken symlink is an invalid configured file, not a missing default.
             if explicit or path.is_symlink():
                 raise ConfigError(f"Configuration file does not exist: {path}") from exc
-            data = {"schema_version": 1, "sources": {}}
+            data = {"schema_version": 2, "sources": {}}
         except (OSError, tomllib.TOMLDecodeError, UnicodeError) as exc:
             raise ConfigError(f"Cannot read valid TOML configuration: {path}") from exc
         return cls(data, config_path=path)
@@ -61,20 +64,21 @@ class Registry:
         self,
         name: str | None = None,
         *,
-        allowed_scopes: Collection[str] | None = None,
+        allowed_scopes: Collection[str] = ("local", "institutional"),
         organization: str | None = None,
     ) -> Source:
         """Select one source; never guess, reroute, or relax explicit restrictions.
 
+        The default excludes external sources. Pass all three scopes explicitly
+        to allow external use. Offline inspection may explicitly allow all scopes.
         organization requires that exact institutional boundary. Scopes describe
         configured processing boundaries, not verified data-handling permissions.
         """
-        if isinstance(allowed_scopes, str):
+        if allowed_scopes is None or isinstance(allowed_scopes, str):
             raise TypeError("allowed_scopes must be a collection of scope names, not a string.")
-        if allowed_scopes is not None:
-            unknown = set(allowed_scopes) - {"local", "institutional", "external"}
-            if unknown:
-                raise ValueError(f"Unknown allowed scopes: {sorted(unknown)}")
+        unknown = set(allowed_scopes) - {"local", "institutional", "external"}
+        if unknown:
+            raise ValueError(f"Unknown allowed scopes: {sorted(unknown)}")
         selected = self.default_source if name is None else name
         if selected is None:
             raise SelectionError("Select a source by name or configure default_source.")
@@ -82,7 +86,7 @@ class Registry:
             source = self._sources[selected]
         except KeyError as exc:
             raise SelectionError(f"Source {selected!r} is not configured.") from exc
-        if allowed_scopes is not None and source.scope not in allowed_scopes:
+        if source.scope not in allowed_scopes:
             raise SelectionError(f"Source {selected!r} is outside allowed_scopes.")
         if organization is not None and (
             source.scope != "institutional" or source.organization != organization

@@ -12,7 +12,7 @@ from sheetbend.errors import ConfigError, SelectionError
 
 
 def test_packaged_schemas_are_valid():
-    for name in ("config", "check"):
+    for name in ("config", "check", "check-report", "activity"):
         Draft202012Validator.check_schema(load_schema(name))
 
 
@@ -24,8 +24,8 @@ def test_schema_defaults_and_ownership(config):
     source = normalized["sources"]["local"]
     assert source["timeout_seconds"] == 30
     assert source["rate_limit"] == {}
-    assert source["capabilities"]["json_schema"] is False
-    assert source["capabilities"]["streaming"] is True
+    assert source["models"]["test-model"]["capabilities"]["json_schema"] is False
+    assert source["models"]["test-model"]["capabilities"]["streaming"] is True
     config["sources"]["local"]["base_url"] = "https://different.example/v1"
     normalized["sources"].clear()
     assert registry.source().base_url == "http://127.0.0.1:8000/v1"
@@ -176,4 +176,4 @@ def test_toml_dates_are_not_silently_serialized(config):
 def test_version_has_single_authored_source():
     project = tomllib.loads(Path("pyproject.toml").read_text())
     assert __version__ == project["project"]["version"]
-    assert json.loads(json.dumps(Registry.from_dict({"schema_version": 1, "sources": {}}).to_dict()))
+    assert json.loads(json.dumps(Registry.from_dict({"schema_version": 2, "sources": {}}).to_dict()))

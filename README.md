@@ -1,18 +1,21 @@
 # sheetbend
 
-Discover, inspect, and verify intelligence sources from one small, explicit
-configuration. Use the same source names in a notebook, a command-line tool, or
-another Python library while keeping endpoint details out of application code.
+Discover, inspect, and verify intelligence sources from one explicit configuration.
+Use the same names in a notebook, command-line application, or Python library,
+without teaching every application its own endpoint and credential conventions.
 
-**Sheetbend owns the connection registry. [LLM](https://llm.datasette.io/) owns
-inference.** A Sheetbend connection yields an LLM model, so prompting,
-conversations, streaming, tools, and schema-shaped responses remain LLM's API.
-Sheetbend adds credential binding, source-local request limits, resource lifetime,
-and small synthetic diagnostics. It does not implement a second prompt API.
+**Sheetbend owns connection configuration, caller restrictions, shared request
+limits, and diagnostics. [LLM](https://llm.datasette.io/) owns inference.** A
+connection yields an LLM model. Prompting, conversations, attachments, tools,
+schemas, and responses remain LLM's API, not another Sheetbend prompt language.
+
+Version 0.2 adds model-specific capabilities and `sheetbend top`: a content-free
+view of the applications and processes using your sources on this host.
 
 ## Install
 
-Python 3.13 or later:
+Python 3.13 or later. Registry inspection is cross-platform; inference and shared
+runtime coordination currently support Linux and macOS.
 
 ```bash
 mamba create -n sheetbend_env -c conda-forge python=3.13 pip
@@ -20,333 +23,318 @@ mamba activate sheetbend_env
 python -m pip install -e '.[llm]'
 ```
 
-For registry inspection and the `/models` diagnostic alone, `pip install -e .`
-is sufficient. The optional `llm` extra adds actual model connections and generation
-probes. The initial adapter targets LLM 0.35 and OpenAI Python 3.x; its bounded
-version range is deliberate because it uses LLM's OpenAI-compatible Chat class.
-LLM's transitive Pydantic dependency belongs to LLM, not Sheetbend's data model.
+`pip install -e .` is sufficient for configuration inspection, catalog checks, and
+runtime inspection. The `llm` extra adds inference and generation checks. The
+adapter targets LLM 0.35 and OpenAI Python 3.x, with a deliberately bounded
+compatibility range. Sheetbend's data contracts are JSON Schemas, not Pydantic
+models; LLM owns any Pydantic dependency inside its inference interface.
+
+**Updating from 0.1?** Read [the 0.2 migration notes](docs/migration-0.2.md).
+Configuration schema 1 is deliberately replaced, not silently migrated.
 
 ## Configure once per environment
 
-The default is `${XDG_CONFIG_HOME:-$HOME/.config}/sheetbend/config.toml`, on both
-Linux and macOS. A relative `XDG_CONFIG_HOME` is ignored, as specified by XDG.
-
-```bash
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/sheetbend"
-cp examples/config.toml "${XDG_CONFIG_HOME:-$HOME/.config}/sheetbend/config.toml"
-```
-
-**Edit the placeholder model names and addresses before probing.** The example
-contains local, institutional, and external sources. A minimal local source is:
+The default file is `${XDG_CONFIG_HOME:-$HOME/.config}/sheetbend/config.toml`, on
+Linux and macOS. An explicit `config_path` takes precedence over `SHEETBEND_CONFIG`,
+which takes precedence over that default. XDG paths must be absolute. Exactly one
+file is selected, never a stack to merge. A relative explicit config path is
+resolved from the caller's working directory.
 
 ```toml
-schema_version = 1
-default_source = "local"
+schema_version = 2
+default_source = "laptop"
 
-[sources.local]
+[sources.laptop]
 protocol = "openai-compatible"
-base_url = "http://127.0.0.1:8000/v1"
-default_model = "your-local-model"
+base_url = "http://127.0.0.1:11434/v1"
+default_model = "qwen3.5:4b"
 scope = "local"
 auth = { type = "none" }
+timeout_seconds = 120
 
-[sources.local.rate_limit]
+[sources.laptop.rate_limit]
 requests_per_minute = 60
-max_concurrent = 2
+max_concurrent = 1
 
-[sources.local.capabilities]
-json_schema = true
+[sources.laptop.models."qwen3.5:4b"]
+capabilities = { streaming = true, json_schema = true, vision = true, tools = true }
 ```
 
-`protocol = "openai-compatible"` means **Chat Completions** in version 0.1:
-`POST <base_url>/chat/completions`, plus `GET <base_url>/models` for the catalog
-probe. A server need not expose `/models` to support inference; run a text probe
-when its catalog route is unavailable. There is no inferred `/v1`, alternate
-endpoint fallback, Responses API routing, or native non-compatible provider plugin
-integration in this version.
+`laptop` is a chosen source name, not a reserved word or privacy rule. `scope` is
+its declared processing boundary. Model keys are actual server model IDs, not
+Sheetbend aliases. Dotted TOML headers form nested objects; the quoted model key
+keeps punctuation inside one ID. Endpoint, auth, scope, and limits belong to the
+source; capabilities belong to each model as served through that source.
 
-The complete external contract is
-[`src/sheetbend/schemas/config.schema.json`](src/sheetbend/schemas/config.schema.json).
-It validates the JSON-compatible value parsed from TOML. Unknown fields, invalid
-credential forms, non-finite numbers, TOML dates, and undeclared default sources
-fail rather than being silently interpreted. The schema owns defaults; the loader
-applies them to an independent copy after validation. Endpoint safety and
-cross-reference checks supplement the schema.
+The example above expects an already running local Ollama server and downloaded
+model. Follow [the Mac deployment guide](docs/mac-local-endpoint.md) to install
+one. [examples/config.toml](examples/config.toml) shows institutional and external
+sources with intentionally placeholder addresses and model IDs.
 
-### One selected configuration, never a merge
+An explicitly selected missing, unreadable, or malformed configuration is an
+error. A missing implicit default is an empty registry. Loading, selecting, and
+printing sources creates no config or runtime files, resolves no secrets, and
+contacts no endpoints. There is no working-directory discovery, `.env` search,
+host guessing, automatic source fallback, or automatic model enrollment.
 
-Precedence is an explicit `config_path`, then a nonempty `SHEETBEND_CONFIG`, then
-the default above. An explicitly selected missing, unreadable, or invalid file is
-an error. A missing implicit default represents an empty registry. A malformed
-implicit default or broken symlink is still an error.
+An existing registry is an owned snapshot. Reopen it after editing the file.
+Without `default_source`, callers must name a source, even when only one exists.
 
-```bash
-export SHEETBEND_CONFIG="$HOME/.config/sheetbend/cluster.toml"
-sheetbend sources
+### Authentication and transport
 
-# Or select exactly one file for this invocation:
-sheetbend --config-path /path/to/workstation.toml sources
-```
-
-No current-directory search, parent-directory search, `.env` discovery, automatic
-creation, hostname matching, fallback source selection, or automatic network
-requests. `default_source` is optional, but its absence requires an explicit source
-name even when exactly one source exists. Reopen the registry to read an edited
-configuration; an existing registry is a snapshot.
-
-### Authentication
-
-The `auth` object is required and accepts exactly three forms:
+The required `auth` object accepts exactly these alternatives:
 
 ```toml
 auth = { type = "none" }
-auth = { type = "bearer", env = "MSK_LLM_API_KEY" }
+auth = { type = "bearer", env = "WORK_LLM_API_KEY" }
 auth = { type = "header", env = "INFERENCE_API_KEY", header = "api-key" }
 ```
 
-These are alternatives, not three entries to paste into the same source. `bearer`
-sends `Authorization: Bearer <value>`; `header` sends the value verbatim in the
-named credential header. `Authorization` and routing/transport headers are
-reserved; choose `bearer` for bearer authentication.
+Do not paste all three into one source. The config holds references, not values.
+Credentials resolve at connection entry or once per catalog request. Reconnect
+after rotating them. There is no implicit OpenAI environment-key lookup, LLM key
+store lookup, shell command, or process-global environment modification.
 
-No plaintext key field, credential command execution, implicit OpenAI key lookup,
-LLM key-store lookup, or global environment mutation. Credentials are resolved at
-`connect()` entry and once per catalog request, not when importing, loading,
-selecting, or displaying sources. Reconnect after rotating a secret.
+`source.resolve_auth()` is an explicit escape hatch returning **secret-bearing
+HTTP headers**. Its caller owns their disclosure. Normal `to_dict()`, `repr()`,
+and CLI inspection retain only configured references. Keep secrets out of source
+names, descriptions, labels, model IDs, and URL paths too. Environment variables
+are delivery mechanisms, not a secure vault. Third-party debug logging and Python
+tracebacks can expose data outside Sheetbend's telemetry controls.
 
-Environment variables are not a vault. Sheetbend keeps credential references in
-config and does not write resolved values to disk. `source.resolve_auth()` is an
-explicit low-level escape hatch that returns **secret-bearing HTTP headers**; its
-caller owns their use and disclosure. Ordinary `to_dict()`, `repr()`, and CLI
-inspection contain only references, never resolved secrets. Keep descriptions,
-source/model names, and URL paths free of secrets too.
+`protocol = "openai-compatible"` currently means Chat Completions at
+`POST <base_url>/chat/completions` and the catalog at `GET <base_url>/models`.
+No inferred `/v1`, alternate endpoint, Responses routing, or provider plugin.
+A missing catalog route does not imply inference is unavailable; try a text check.
 
-Ambient `OPENAI_CUSTOM_HEADERS` is rejected for an LLM connection rather than
-allowing the SDK to add unrelated headers. The context uses its explicit endpoint,
-credential headers, and no ambient OpenAI organization/project. Do not enable
-third-party SDK debug logging around sensitive data; Sheetbend cannot control
-what external logging or a notebook traceback retains.
+HTTPS verifies certificates. Optional `ca_bundle` paths resolve relative to the
+selected configuration's directory, or the construction-time working directory
+for `Registry.from_dict()`. There is no `verify = false`. Non-loopback HTTP
+requires explicit `allow_insecure_http = true`. Redirects and environment HTTP
+proxies are disabled. Ambient `OPENAI_CUSTOM_HEADERS` is rejected rather than
+silently changing source-bound credentials. SDK retries are disabled.
 
-### Scopes are declarations, not permissions
-
-`local` means processing stays on the executing host; `institutional` names a
-specific organization's processing boundary; `external` is outside those
-boundaries. An institutional source must have `organization = "msk"` (or its
-actual organization). Other scopes must not include that field. This is not the
-OpenAI SDK's organization header.
-
-Local means the Python process's host, not the laptop displaying a remote
-notebook. A loopback address might be a tunnel to another machine: neither an
-address nor a scope label certifies actual privacy, policy approval, or the absence
-of onward forwarding. Sources are never automatically ranked by "trust".
+### Caller boundaries
 
 ```python
 from sheetbend import Registry
 
 registry = Registry.from_file()
 source = registry.source(
-    "msk",
+    "work",
     allowed_scopes={"institutional"},
     organization="msk",
 )
 ```
 
-A mismatch raises `SelectionError`. Sheetbend does not choose an external source
-instead. These checks only enforce the configured declarations; the caller is
-responsible for deciding what data may be sent.
+`Registry.source()` defaults to `{"local", "institutional"}`. External access must
+be explicitly allowed, for example `allowed_scopes={"external"}` for an external
+source, or all three scopes for an unrestricted application. An empty collection
+permits none; `None` is not an unrestricted shorthand.
 
-HTTPS verifies certificates. Set `ca_bundle` to a custom trust bundle where
-needed; a relative path is relative to the selected configuration's directory
-(or the construction-time working directory with `Registry.from_dict()`). There
-is no `verify = false`. Non-loopback HTTP requires the conspicuous
-`allow_insecure_http = true` opt-in. HTTP proxies from the environment are not
-used, and redirects are not followed.
+`local` means processing on the executing Python process's host, not the laptop
+showing a remote notebook. A tunnel is not local processing. `institutional`
+requires an organization identifier; other scopes must not include one.
+`organization="msk"` is an exact configured boundary check, not an SDK header.
+These declarations do not certify privacy, institutional approval, model safety,
+or absence of onward forwarding. There is no automatic trust ranking or rerouting.
 
-## See and verify sources
-
-```bash
-sheetbend sources
-sheetbend sources --json
-sheetbend inspect local
-sheetbend inspect msk --json
-
-sheetbend check local                      # GET /models only; no generation
-sheetbend check local --test text          # Synthetic prompt; may incur cost
-sheetbend check local --test schema        # Request schema output, then validate it
-sheetbend check local --test stream        # Consume a synthetic streaming response
-sheetbend check local --test text --model another-model --json
-
-sheetbend schema                           # The authoritative config schema
-sheetbend schema --name check              # Versioned diagnostic output schema
-sheetbend version
-```
-
-Global `--config-path` goes **before** the subcommand. `inspect` and `check` may
-omit the source name only when `default_source` is configured. Inspection is
-strictly offline and does not require valid credential values. `version` and
-`schema` also work when the selected config file is broken.
-
-One check performs one requested operation. There is no automatic startup
-verification or generation while listing sources. Generation probes send fixed,
-small synthetic prompts, not user files, notebook variables, or conversation
-history. They request a short answer but do not impose a provider-independent
-token ceiling: provider reasoning and billing behavior can still vary. A failure
-is a structured `CheckResult`, and the CLI exits 1. Config/selection errors also
-exit unsuccessfully. There is no retry or fallback. Ordinary library operations
-raise their failures rather than collecting partial successes.
-
-A successful catalog check does not establish inference access. Text checks
-require nonempty text, not exact instruction following. Schema checks require
-actual JSON satisfying the probe's schema, not merely an HTTP 200 response. A
-single passing example is not proof of general server-side schema enforcement.
-Streaming checks establish that a response can be consumed in streaming mode,
-not a throughput or latency guarantee. No probe updates the hand-edited config.
-
-## Use LLM in a notebook or application
+## Use the native LLM API
 
 ```python
 from sheetbend import Registry
 
-registry = Registry.from_file()
-print(registry)
-source = registry.source("local")
+source = Registry.from_file().source("laptop", allowed_scopes={"local"})
 print(source)
+print(source.model_names)
 
-# These are independent public workflow stages:
-print(source.list_models())
-print(source.check(test="text"))
-
-with source.connect() as model:
+with source.connect(
+    requires={"json_schema"},
+    application="notebook",
+    tool="exploration",
+) as model:
     response = model.prompt("Say hello in one sentence.", stream=False)
     text = response.text()
 
 print(text)
 ```
 
-`model` is an LLM `KeyModel` subclass and `response` is an ordinary LLM `Response`.
-`source.connect(model="another-model")` explicitly overrides the default model.
-It prepares a connection; it does not promise that the server is reachable.
+`connect(model="another-configured-id")` selects another declared model at the
+same source. Normal connections reject unconfigured IDs. `requires` checks the
+selected model's declarations before credentials, network work, or runtime file
+creation. It does not run paid probes, infer support, or choose an alternative.
 
-**Consume lazy responses inside the context.** LLM sends the request when you
-consume the response, not necessarily at `prompt()`. Starting or resuming an
-unfinished request after the context exits fails. Completed response text and
-metadata can be retained. Each context owns its HTTP client; reuse one context
-for a sequence of prompts. Finish active worker threads before closing their
-connection. An abandoned stream's limiter permit is released when its connection
-closes; unfinished streams must not be treated as completed responses.
+Capability defaults come from the packaged config schema: `streaming=true`,
+`system_prompt=true`, and `json_schema=vision=tools=false`. A probe may explicitly
+try an undeclared capability or unconfigured model without changing these values.
 
-```python
-with source.connect() as model:
-    conversation = model.conversation()
-    first = conversation.prompt("Remember the word knot.", stream=False).text()
-    second = conversation.prompt("What word did I give you?", stream=False).text()
-```
+Application and tool labels are optional, connection-scoped display metadata.
+`tool` means your application operation/subcommand, not a model-requested function.
+Unlabeled callers use the Python executable basename. PID and process-instance
+identity are collected automatically. Labels are not authenticated identities;
+command lines, notebook names, and input paths are not inferred.
 
-There is no Sheetbend `prompt()` or `generate()` method to learn. LLM handles
-conversation context, attachments, tool definitions, options, and response usage.
-The capability declarations must match the selected model. Version 0.1 supplies
-synchronous connections only; using Jupyter does not require an async API.
-
-### JSON Schema outputs
-
-Set `capabilities.json_schema = true` for a supporting model. Pass an ordinary
-schema dictionary straight to LLM, and independently validate application data:
+**Consume lazy responses inside the context.** Preparing a response need not
+send a request. Consuming it does. Completed text may outlive the context, but new
+requests and resuming unfinished responses after closure fail. Do not carry an
+open connection across a fork. Finish worker threads before closing their shared
+connection. Context exit cancels abandoned streams and waiting admissions; it
+cannot promise that a remote provider stops already accepted computation.
 
 ```python
 import json
 from jsonschema import Draft202012Validator
 
-output_schema = {
+schema = {
     "type": "object",
     "properties": {"greeting": {"type": "string"}},
     "required": ["greeting"],
     "additionalProperties": False,
 }
 
-with source.connect() as model:
-    response = model.prompt(
-        "Return a friendly greeting.",
-        schema=output_schema,
-        stream=False,
-    )
+with source.connect(requires={"json_schema"}, application="my-app") as model:
+    response = model.prompt("Return a greeting.", schema=schema, stream=False)
     result = json.loads(response.text())
 
-Draft202012Validator(output_schema).validate(result)
-print(result["greeting"])
+Draft202012Validator(schema).validate(result)
 ```
 
-A schema probe can explicitly try the schema capability before you enable its
-normal-use declaration. Endpoint/model support varies. The adapter does not
-convert an unsupported schema request into an unconstrained prompt or a mere
-JSON-mode request. It does not claim that LLM's request enforces strict schemas on
-every server; application validation remains appropriate.
+Conversations remain `model.conversation()`, tools and attachments remain LLM
+objects, and no Sheetbend `prompt()` or `generate()` is introduced. Application
+validation remains appropriate: an endpoint accepting a schema is not proof of
+arbitrary schema enforcement.
 
-### Declared capabilities and defaults
+## Inspect and verify
 
-The schema defines `streaming = true`, `json_schema = false`, `vision = false`,
-`tools = false`, and `system_prompt = true`. They configure the LLM model; they are
-not discoveries or promises. They apply to the selected model, including an
-explicit model override. Use separate named sources when models at the same
-endpoint need different declarations. The available model IDs from `/models`
-are not silently enrolled or inferred to share capabilities.
+```bash
+sheetbend sources
+sheetbend inspect laptop --json
+sheetbend check laptop                         # Catalog only
+sheetbend check laptop --test text
+sheetbend check laptop --test schema
+sheetbend check laptop --test stream
+sheetbend check laptop --test tools
+sheetbend check laptop --test vision
+sheetbend check laptop --all --json            # All six, including undeclared capabilities
+sheetbend check external --test text --allow-external
+sheetbend schema --name config
+sheetbend schema --name check-report
+sheetbend version
+```
 
-## Rate limits without a service daemon
+Global `--config-path` precedes the subcommand. Offline `sources` and `inspect`
+show all configured scopes. Endpoint checks exclude external sources unless
+`--allow-external` is supplied. `version`, `schema`, and `top` do not need valid
+configuration. A failing check/report exits 1. `--all` and `--test` are exclusive.
 
-`requests_per_minute` limits request starts in a rolling 60-second window.
-`max_concurrent` limits active calls through response consumption. Either can be
-omitted, meaning no corresponding client-side limit. Omitting `rate_limit`
-means neither limit is imposed. Counts include rejected attempts.
+Checks send fixed synthetic data, never user files or notebook variables. Text,
+schema, streaming, tools, and vision checks generate responses and may incur
+charges. The tools probe verifies one proposed call and its arguments without
+executing code. The vision probe sends a generated green PNG and requires the
+color to be identified. These are narrow mechanical observations, not benchmarks
+or certifications. Output includes a timestamp and the prior capability declaration
+(`null` when not applicable or the model was unconfigured).
 
-**The limits belong to one `Source` instance.** Repeated `registry.source("local")`
-calls return that same instance. Its model connections and catalog probes share
-a thread-safe limiter. Another registry, process, notebook kernel, machine, or
-source entry has independent limits—even when it points at the same endpoint.
-Provider-side quotas remain authoritative. This is not a distributed quota
-system, token-per-minute enforcer, scheduler, or guarantee of fairness.
+`source.list_models()`, `source.check(test="schema")`, and `source.check_all()` are
+public library stages. Ordinary operations raise at the first failure; the
+explicit diagnostic report intentionally collects all six results. No automatic
+startup probing, config rewriting, or client retries. Probes request short answers
+but do not impose a provider-independent token ceiling or cost guarantee.
 
-No SDK retries are enabled: a failed attempt fails. The schema's
-`timeout_seconds = 30` is the network operation/inactivity timeout, not a total
-wall-clock deadline for a whole stream and not a timeout for waiting in the
-limiter queue. Consume or close active responses before starting another that
-would exceed a concurrency limit. Repeatedly opening new registries is not a
-way to obtain shared throttling.
+## Shared limits and `sheetbend top`
 
-## What about `sheetbend top`?
+```bash
+sheetbend top
+sheetbend top --once
+sheetbend top --json
+```
 
-Not included in 0.1. A future `top` view could observe calls routed through the
-adapter, but viewing activity from other processes would require explicit shared
-telemetry. A useful record would contain source/model IDs, request IDs, timestamps,
-status, latency, and optional token usage—not prompt text, response text, or keys.
+The live view identifies PID, application, tool, source, model, state, age, and
+provider-reported token counts. One row represents one request, not one process.
+It can see requests that began before the viewer opened. Closing the viewer has
+no effect on callers. For notebook inspection, use `Runtime().snapshot()`:
 
-This commit creates no telemetry files, database, daemon, registry plugin, or
-background thread for monitoring. It cannot observe arbitrary requests made
-outside Sheetbend. That boundary can stay small even when monitoring is added.
+```python
+from sheetbend import Runtime
 
-## Development and verification
+activity = Runtime().snapshot()
+```
+
+`requests_per_minute` is a rolling 60-second limit on admitted request starts.
+`max_concurrent` covers active client requests through response consumption.
+Catalog calls and all models of a source share both limits. Failed attempts count.
+
+The bucket is **the canonical config-file path plus source name**, shared across
+this user's participating processes on this host. Separate file-backed registries
+share it. Symlink paths to the same file share it. Different source entries/config
+files are deliberately not deduplicated. `Registry.from_dict()` has no shared file
+identity and receives a private registry namespace; its activity is still visible
+in `top`. Use a common config file for cross-application quotas.
+
+Conflicting endpoint/auth-reference/boundary/limit definitions cannot reset a busy
+bucket. Reload callers consistently and let recent starts age out of the 60-second
+window. Different model capability declarations do not create extra request budgets.
+
+The host-local SQLite ledger is also the activity source. Short transactions reserve
+slots; no transaction remains open during inference or waiting. No daemon or
+background heartbeat thread. Dead-process cleanup checks PID **and process creation
+time**, not an inactivity timeout that could evict a live, paused request. The next
+request or snapshot performs cleanup. A runtime failure raises an error rather than
+silently allowing unlimited traffic. Coordination is cooperative, not a security
+boundary against applications deliberately bypassing Sheetbend.
+
+Runtime directory precedence is `SHEETBEND_RUNTIME_DIR`, then
+`$XDG_RUNTIME_DIR/sheetbend`, then the macOS local user temp directory or Linux
+`/tmp/sheetbend-<uid>`. It must be a private 0700 directory on a **local** filesystem;
+parents must already exist. Known network filesystem types are rejected, but this
+check cannot identify every exotic mount. The database is private and boot-scoped; new requests remove prior-boot ledger files.
+Do not delete or relocate runtime state while clients are active. All cooperating
+applications and viewers must use the same runtime directory.
+
+The ledger stores no prompts, response bodies, resolved credentials, URLs, input
+paths, raw command lines, or exception messages. It retains active requests and up
+to 1,000 recent completions for ten minutes, pruning during activity. Recent-start
+accounting is separate, so pruning the display does not erase a rate budget. SQLite
+can retain previously used disk pages; this is bounded operational state, not a
+forensic erasure guarantee or an audit log.
+
+`waiting` means waiting for a Sheetbend permit. `running` means admitted;
+`streaming` begins after the first yielded upstream event. `done` means the client
+consumed the response, not that its content passed application validation. Failed,
+cancelled, and abandoned requests remain distinguishable. Token values stay `?`
+until reported, usually at completion. No guessed live token counter.
+
+Separate users and cluster nodes have separate coordination domains. A shared NFS
+home does not turn this into a cluster-wide quota service. Provider quotas remain
+authoritative. No token-per-minute limits, fairness guarantee, or cross-host routing.
+`timeout_seconds` is the network operation/inactivity timeout, not a total request
+or queue deadline. Consume or close streams before starting work that would exceed
+their shared concurrency limit.
+
+## Development
 
 ```bash
 python -m pip install -e '.[llm,dev]'
-pytest
+SHEETBEND_REQUIRE_LLM_TESTS=1 pytest
 ruff check .
 python -m pip wheel --no-deps --wheel-dir dist .
 ```
 
-Tests cover schema/default behavior, explicit discovery, ownership, scope filters,
-authentication, CLI exit codes, rate limiting, and model-catalog requests. The
-LLM integration module uses the actual LLM and OpenAI packages against a loopback
-HTTP fixture to test prompting, conversation history, schema forwarding,
-streaming, auth on the wire, failure/no-retry behavior, and connection lifetimes.
-It is skipped when the optional LLM extra is absent; a skipped integration module
-must not be mistaken for an integration pass. CI installs the extra.
+CI runs Linux and macOS on Python 3.13 and 3.14 and requires the actual LLM/SDK
+integration module. Core tests use real SQLite, spawned processes, and loopback
+HTTP; adapter unit tests are explicitly labeled test doubles. The actual integration
+module separately covers LLM prompting, schemas, conversations, streaming, tools,
+vision, auth, and telemetry. Without the optional extra it is skipped locally,
+which is not an integration pass.
 
-The public API is experimental in this initial release. `pyproject.toml` is the
-only authored package version. Both JSON Schemas and the type marker are included
-in the wheel. The repository's Apache-2.0 license is unchanged.
+`pyproject.toml` is the sole authored package version. The config, check,
+check-report, and activity schemas are packaged with `py.typed`. The experimental
+API and Apache-2.0 license remain. No image assets or logo changes in this update.
 
 ### Implementation references
 
 - [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/)
-- [LLM Python API, including lazy responses and dictionary schemas](https://llm.datasette.io/en/stable/python-api.html)
-- [LLM's OpenAI-compatible models](https://llm.datasette.io/en/stable/other-models.html)
-- [LLM adapter implementation](https://github.com/simonw/llm/blob/main/llm/default_plugins/openai_models.py)
-- [JSON Schema defaults are annotations; applications must apply them](https://python-jsonschema.readthedocs.io/en/stable/faq/)
+- [LLM Python API](https://llm.datasette.io/en/stable/python-api.html)
+- [LLM 0.35 OpenAI-compatible implementation](https://github.com/simonw/llm/blob/0.35/llm/default_plugins/openai_models.py)
+- [SQLite WAL and its same-host limitation](https://www.sqlite.org/wal.html)
+- [psutil process identity](https://psutil.readthedocs.io/en/latest/)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sheetbend:config:1",
-  "title": "Sheetbend configuration, version 1",
+  "$id": "urn:sheetbend:config:2",
+  "title": "Sheetbend configuration, version 2",
   "description": "Validate the JSON-compatible value obtained by parsing config.toml. Defaults are applied by Sheetbend after validation. Credential values must not appear in this document.",
   "type": "object",
   "required": [
@@ -11,7 +11,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "type": "integer"
     },
     "default_source": {
@@ -38,7 +38,10 @@
     "nonempty": {
       "type": "string",
       "minLength": 1,
-      "pattern": "\\S"
+      "pattern": "\\S",
+      "not": {
+        "pattern": "[\\x00-\\x1f\\x7f]"
+      }
     },
     "env": {
       "type": "string",
@@ -54,7 +57,8 @@
         "base_url",
         "default_model",
         "scope",
-        "auth"
+        "auth",
+        "models"
       ],
       "additionalProperties": false,
       "properties": {
@@ -105,9 +109,15 @@
           "$ref": "#/$defs/rate_limit",
           "default": {}
         },
-        "capabilities": {
-          "$ref": "#/$defs/capabilities",
-          "default": {}
+        "models": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/nonempty"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/model"
+          }
         }
       },
       "allOf": [
@@ -226,7 +236,7 @@
           "minimum": 1
         }
       },
-      "description": "Optional client-side limits shared by probes and connections obtained from the same Source instance. Rolling 60-second request-start window; concurrent slots last through response consumption. Not cross-process or provider-wide quotas."
+      "description": "Same-user, same-host limits shared by applications using the same canonical config path and source name. Rolling 60-second request starts and active response consumption; not cluster-wide or provider quotas."
     },
     "capabilities": {
       "type": "object",
@@ -253,7 +263,17 @@
           "default": true
         }
       },
-      "description": "User declarations passed to LLM, not discovered facts. They must describe the selected model, including any explicit model override. Probes never rewrite these declarations."
+      "description": "Declarations for this model as served by this source. Probes do not change them."
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/capabilities",
+          "default": {}
+        }
+      }
     }
   }
 }

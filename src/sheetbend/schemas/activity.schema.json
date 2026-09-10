@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:activity:1",
+  "title": "Sheetbend same-user same-host activity snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "host",
+    "observed_at",
+    "requests"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "host": {
+      "type": "string"
+    },
+    "observed_at": {
+      "type": "number"
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "registry_id",
+          "source",
+          "model",
+          "operation",
+          "pid",
+          "process_started",
+          "process_instance",
+          "application",
+          "tool",
+          "state",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "input_tokens",
+          "output_tokens",
+          "age_seconds",
+          "wait_seconds",
+          "duration_seconds"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "registry_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation": {
+            "enum": [
+              "models",
+              "generate"
+            ]
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "process_started": {
+            "type": "number"
+          },
+          "process_instance": {
+            "type": "string"
+          },
+          "application": {
+            "type": "string"
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "enum": [
+              "waiting",
+              "running",
+              "streaming",
+              "done",
+              "error",
+              "cancelled",
+              "abandoned"
+            ]
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "started_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "age_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

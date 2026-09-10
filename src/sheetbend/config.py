@@ -19,9 +19,9 @@ PathLike = str | os.PathLike[str]
 
 
 def load_schema(name: str = "config") -> dict[str, Any]:
-    """Return an independent copy of a packaged schema: config or check."""
-    if name not in {"config", "check"}:
-        raise ValueError("Schema must be 'config' or 'check'.")
+    """Return an independent copy of a packaged schema: config, check, check-report, or activity."""
+    if name not in {"config", "check", "check-report", "activity"}:
+        raise ValueError("Unknown packaged schema name.")
     resource = files("sheetbend").joinpath("schemas", f"{name}.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
 
@@ -126,4 +126,6 @@ def validate_config(data: Mapping[str, Any]) -> dict[str, Any]:
         raise ConfigError(f"default_source {default!r} is not defined in sources.")
     for name, source in owned["sources"].items():
         _validate_endpoint(name, source)
+        if source["default_model"] not in source["models"]:
+            raise ConfigError(f"Source {name!r}: default_model must name a configured model.")
     return owned

@@ -1,40 +1,41 @@
-"""The narrow integration boundary with LLM's OpenAI-compatible Chat model.
+"""The one LLM-specific integration module; LLM still owns the inference API.
 
-LLM owns prompting, conversations, schemas, tools, response objects, and streaming.
-Sheetbend only supplies the client, source-local limits, and connection lifetime.
-The optional dependency range is deliberately bounded because Chat is an upstream
-implementation class rather than a provider-independent constructor.
+This adapter supplies an explicit HTTP client, request admission/activity, and
+resource lifetime. It delegates prompting and response handling to LLM Chat.
+The upstream dependency range is intentionally bounded and integration-tested.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from threading import Lock
-from typing import Any
-
 import os
+from threading import Event, Lock
+from typing import Any
 
 import llm
 from llm.default_plugins.openai_models import Chat
 import openai
 
 from .errors import ConnectionClosedError, CredentialError
-from .rate_limiter import RateLimiter, _Permit
+from .runtime.runtime import _Admission, _Request
 from .source import Source
 
 
 class _ConnectedChat(Chat):
-    """An LLM model with a source-bound client and explicit resource lifetime."""
+    """A source-bound LLM model. Caller labels belong to this connection only."""
 
     def __init__(
-        self, *, client: openai.OpenAI, limiter: RateLimiter, **options: Any
+        self, *, client: openai.OpenAI, admission: _Admission,
+        application: str | None, tool: str | None, **options: Any,
     ) -> None:
         super().__init__(**options)
         self._client = client
-        self._limiter = limiter
-        self._closed = False
+        self._admission = admission
+        self._application = application
+        self._tool = tool
+        self._closed = Event()
+        self._pid = os.getpid()
         self._lock = Lock()
-        self._permits: set[_Permit] = set()
-        # Prevent LLM's KeyModel from consulting its own key store/environment.
+        self._requests: set[_Request] = set()
         self.needs_key = None
         self.key_env_var = None
 
@@ -45,101 +46,100 @@ class _ConnectedChat(Chat):
 
     def get_client(self, key: str | None, *, async_: bool = False) -> openai.OpenAI:
         if async_:
-            raise NotImplementedError("Sheetbend 0.1 provides synchronous LLM connections only.")
+            raise NotImplementedError("Sheetbend provides synchronous LLM connections only.")
         self._ensure_open()
         return self._client
 
     def _ensure_open(self) -> None:
-        if self._closed:
-            raise ConnectionClosedError("Consume this response inside source.connect().")
+        if self._closed.is_set() or self._pid != os.getpid():
+            raise ConnectionClosedError("Consume responses in the creating process's source.connect() context.")
 
     def execute(
-        self,
-        prompt: llm.Prompt,
-        stream: bool,
-        response: llm.Response,
-        conversation: llm.Conversation | None = None,
-        key: str | None = None,
+        self, prompt: llm.Prompt, stream: bool, response: llm.Response,
+        conversation: llm.Conversation | None = None, key: str | None = None,
     ) -> Iterator[Any]:
         self._ensure_open()
-        permit = self._limiter.acquire()
+        request = self._admission.acquire(
+            model=self.model_id, operation="generate", application=self._application,
+            tool=self._tool, cancelled=self._closed,
+        )
         with self._lock:
-            if self._closed:
-                permit.release()
+            if self._closed.is_set():
+                request.finish("cancelled")
                 self._ensure_open()
-            self._permits.add(permit)
+            self._requests.add(request)
         execution = super().execute(prompt, stream, response, conversation, key)
+        state = "cancelled"
+        started_stream = False
         try:
             while True:
                 self._ensure_open()
                 try:
                     chunk = next(execution)
                 except StopIteration:
+                    state = "done"
                     break
                 self._ensure_open()
+                if stream and not started_stream:
+                    request.streaming()
+                    started_stream = True
                 yield chunk
+        except Exception:
+            state = "error"
+            raise
         finally:
             try:
                 execution.close()
             finally:
-                permit.release()
-                with self._lock:
-                    self._permits.discard(permit)
+                try:
+                    # Do not call usage(): it forces an unfinished lazy response.
+                    request.finish(
+                        state, input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                    )
+                finally:
+                    with self._lock:
+                        self._requests.discard(request)
 
     def _close(self) -> None:
-        # Release abandoned streaming permits as well as normally consumed ones.
-        # The surrounding OpenAI context closes the actual HTTP resources.
+        self._closed.set()  # Wake waiting admission loops even when no permit exists.
+        errors = []
         with self._lock:
-            self._closed = True
-            for permit in self._permits:
-                permit.release()
-            self._permits.clear()
+            for request in self._requests:
+                try:
+                    request.finish("cancelled")
+                except Exception as exc:
+                    errors.append(exc)
+            self._requests.clear()
+        if errors:
+            raise errors[0]
 
     def __repr__(self) -> str:
-        return f"SheetbendModel(model={self.model_id!r}, closed={self._closed})"
+        return f"SheetbendModel(model={self.model_id!r}, closed={self._closed.is_set()})"
 
 
 @contextmanager
 def connected_model(
-    source: Source, *, model: str, probe_capability: str | None = None
+    source: Source, *, model: str, capabilities: Mapping[str, bool],
+    application: str | None = None, tool: str | None = None,
 ) -> Iterator[llm.KeyModel]:
-    """Bind an LLM model without registering aliases or writing LLM configuration."""
+    """Bind LLM without registering aliases, writing logs, or consulting ambient keys."""
     if os.environ.get("OPENAI_CUSTOM_HEADERS"):
         raise CredentialError("Unset OPENAI_CUSTOM_HEADERS before opening a source-bound connection.")
-    definition = source.to_dict()
-    capabilities = definition["capabilities"]
-    if probe_capability is not None:
-        capabilities[probe_capability] = True
     headers: dict[str, Any] = source.resolve_auth()
-    # Even no-auth/custom-header clients need an SDK placeholder key. Explicitly
-    # omit its Authorization header; never borrow OPENAI_API_KEY or LLM keys.
     headers.setdefault("Authorization", openai.Omit())
     with openai.DefaultHttpxClient(
-        verify=source._tls_context(),
-        trust_env=False,
-        follow_redirects=False,
+        verify=source._tls_context(), trust_env=False, follow_redirects=False,
     ) as http_client, openai.OpenAI(
-        base_url=source.base_url,
-        api_key="sheetbend-source-bound",
-        admin_api_key="",
-        webhook_secret="",
-        organization="",
-        project="",
-        default_headers=headers,
-        timeout=definition["timeout_seconds"],
-        max_retries=0,
-        http_client=http_client,
+        base_url=source.base_url, api_key="sheetbend-source-bound", admin_api_key="",
+        webhook_secret="", organization="", project="", default_headers=headers,
+        timeout=source.to_dict()["timeout_seconds"], max_retries=0, http_client=http_client,
     ) as client:
         connected = _ConnectedChat(
-            client=client,
-            limiter=source._limiter,
-            model_id=model,
-            model_name=model,
-            api_base=source.base_url,
-            can_stream=capabilities["streaming"],
-            supports_schema=capabilities["json_schema"],
-            vision=capabilities["vision"],
-            supports_tools=capabilities["tools"],
+            client=client, admission=source._admission, application=application, tool=tool,
+            model_id=model, model_name=model, api_base=source.base_url,
+            can_stream=capabilities["streaming"], supports_schema=capabilities["json_schema"],
+            vision=capabilities["vision"], supports_tools=capabilities["tools"],
             allows_system_prompt=capabilities["system_prompt"],
         )
         try:

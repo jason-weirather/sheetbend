@@ -2,6 +2,8 @@
 
 from functools import wraps
 import json
+import math
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -11,6 +13,8 @@ from ._version import __version__
 from .config import load_schema
 from .errors import SheetbendError
 from .registry import Registry
+from .runtime.runtime import Runtime
+from .checks import TESTS
 
 
 def _errors(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -43,7 +47,7 @@ def version_command() -> None:
 
 
 @main.command("schema")
-@click.option("--name", type=click.Choice(["config", "check"]), default="config")
+@click.option("--name", type=click.Choice(["config", "check", "check-report", "activity"]), default="config")
 def schema_command(name: str) -> None:
     """Print a packaged JSON Schema."""
     _json(load_schema(name))
@@ -64,7 +68,7 @@ def sources_command(config_path: Path | None, as_json: bool) -> None:
         click.echo("No sources configured.")
         return
     for name in registry.source_names:
-        source = registry.source(name)
+        source = registry.source(name, allowed_scopes=("local", "institutional", "external"))
         default = " *" if name == registry.default_source else ""
         click.echo(f"{name}{default}  [{source.scope}]  {source.default_model}")
 
@@ -76,7 +80,9 @@ def sources_command(config_path: Path | None, as_json: bool) -> None:
 @_errors
 def inspect_command(config_path: Path | None, source_name: str | None, as_json: bool) -> None:
     """Inspect one source (or the explicit configured default), offline."""
-    source = Registry.from_file(config_path).source(source_name)
+    source = Registry.from_file(config_path).source(
+        source_name, allowed_scopes=("local", "institutional", "external")
+    )
     if as_json:
         _json(source.to_dict())
     else:
@@ -86,20 +92,59 @@ def inspect_command(config_path: Path | None, source_name: str | None, as_json: 
 
 @main.command("check")
 @click.argument("source_name", required=False)
-@click.option("--test", type=click.Choice(["models", "text", "schema", "stream"]), default="models")
-@click.option("--model", help="Explicit model override; does not change the configuration.")
-@click.option("--json", "as_json", is_flag=True, help="Print a versioned diagnostic record.")
-@click.pass_obj
+@click.option("--test", type=click.Choice(TESTS), default="models")
+@click.option("--all", "all_tests", is_flag=True, help="Run all six probes, even undeclared capabilities.")
+@click.option("--model", help="Explicit diagnostic model ID; may be unconfigured.")
+@click.option("--allow-external", is_flag=True, help="Explicitly allow a synthetic probe to an external source.")
+@click.option("--json", "as_json", is_flag=True, help="Print a versioned diagnostic record/report.")
+@click.pass_context
 @_errors
 def check_command(
-    config_path: Path | None, source_name: str | None, test: str, model: str | None, as_json: bool
+    ctx: click.Context, source_name: str | None, test: str, all_tests: bool,
+    model: str | None, allow_external: bool, as_json: bool,
 ) -> None:
-    """Verify one source. Text/schema/stream send a synthetic prompt and may cost money."""
-    source = Registry.from_file(config_path).source(source_name)
-    result = source.check(test=test, model=model)
+    """Verify one source. Generation probes send synthetic inputs and may cost money."""
+    if all_tests and ctx.get_parameter_source("test") != click.core.ParameterSource.DEFAULT:
+        raise click.UsageError("Use --all or --test, not both.")
+    scopes = ("local", "institutional", "external") if allow_external else ("local", "institutional")
+    source = Registry.from_file(ctx.obj).source(source_name, allowed_scopes=scopes)
+    result = source.check_all(model=model) if all_tests else source.check(test=test, model=model)
     if as_json:
         _json(result.to_dict())
     else:
         click.echo(str(result))
     if not result.ok:
         raise click.exceptions.Exit(1)
+
+
+@main.command("top")
+@click.option("--once", is_flag=True, help="Print one snapshot and exit; suitable for redirected output.")
+@click.option("--json", "as_json", is_flag=True, help="Print one activity-schema JSON snapshot and exit.")
+@click.option("--refresh-seconds", type=click.FloatRange(min=0.1), default=1.0)
+@_errors
+def top_command(once: bool, as_json: bool, refresh_seconds: float) -> None:
+    """See this user's Sheetbend requests across applications on this host."""
+    from rich.console import Console
+    from rich.live import Live
+    from .runtime.display import activity_table
+
+    if not math.isfinite(refresh_seconds):
+        raise click.BadParameter("must be finite", param_hint="--refresh-seconds")
+    runtime = Runtime()
+    snapshot = runtime.snapshot()
+    if as_json:
+        _json(snapshot)
+        return
+    console = Console()
+    if once:
+        console.print(activity_table(snapshot))
+        return
+    if not console.is_terminal:
+        raise click.UsageError("Interactive top needs a terminal; use --once or --json.")
+    try:
+        with Live(activity_table(snapshot), console=console, screen=True, auto_refresh=False) as live:
+            while True:
+                time.sleep(refresh_seconds)
+                live.update(activity_table(runtime.snapshot()), refresh=True)
+    except KeyboardInterrupt:
+        return

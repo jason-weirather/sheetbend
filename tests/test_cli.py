@@ -12,7 +12,7 @@ def test_sources_missing_config_is_offline(isolated_config):
     assert result.exit_code == 0, result.output
     assert "No sources configured" in result.output
     data = CliRunner().invoke(main, ["sources", "--json"])
-    assert json.loads(data.output) == {"schema_version": 1, "sources": {}}
+    assert json.loads(data.output) == {"schema_version": 2, "sources": {}}
 
 
 @pytest.mark.parametrize("command", [["version"], ["schema"], ["schema", "--name", "check"]])
@@ -49,16 +49,17 @@ def test_default_source_not_guessed(isolated_config):
 
 def test_check_json_failure_exit_status(isolated_config, monkeypatch):
     path = isolated_config / "config.toml"
-    path.write_text("""schema_version = 1
+    path.write_text("""schema_version = 2
 [sources.test]
 protocol = "openai-compatible"
 base_url = "https://inference.example.org/v1"
 default_model = "test"
 scope = "external"
 auth = {type = "bearer", env = "NEVER_SET_THIS_KEY"}
+[sources.test.models.test]
 """)
     monkeypatch.delenv("NEVER_SET_THIS_KEY", raising=False)
-    result = CliRunner().invoke(main, ["--config-path", str(path), "check", "test", "--json"])
+    result = CliRunner().invoke(main, ["--config-path", str(path), "check", "test", "--allow-external", "--json"])
     assert result.exit_code == 1
     assert json.loads(result.output)["ok"] is False
 

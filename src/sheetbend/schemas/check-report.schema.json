@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:check-report:1",
+  "title": "Sheetbend combined diagnostic report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ok",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "title": "Sheetbend diagnostic result, version 2",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source",
+        "model",
+        "test",
+        "ok",
+        "elapsed_seconds",
+        "message",
+        "model_ids",
+        "observed_at",
+        "declared"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "const": 2
+        },
+        "source": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "test": {
+          "enum": [
+            "models",
+            "text",
+            "schema",
+            "stream",
+            "tools",
+            "vision"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string"
+        },
+        "model_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "declared": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "observed_at": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

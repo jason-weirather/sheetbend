@@ -12,7 +12,7 @@ import pytest
 @pytest.fixture
 def config() -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "default_source": "local",
         "sources": {
             "local": {
@@ -21,6 +21,7 @@ def config() -> dict[str, Any]:
                 "default_model": "test-model",
                 "scope": "local",
                 "auth": {"type": "none"},
+                "models": {"test-model": {}, "another-model": {}},
             }
         },
     }
@@ -64,6 +65,10 @@ def endpoint() -> Iterator[dict[str, Any]]:
                 content = state["content"]
                 if content is None:
                     content = '{"ok":true}' if "response_format" in body else "OK"
+                    if any(isinstance(m.get("content"), list) and any(
+                        part.get("type") == "image_url" for part in m["content"]
+                    ) for m in body["messages"]):
+                        content = "green"
                 payload = {
                     "id": "chatcmpl-test", "object": "chat.completion", "created": 1,
                     "model": body["model"],
@@ -71,6 +76,12 @@ def endpoint() -> Iterator[dict[str, Any]]:
                                  "finish_reason": "stop"}],
                     "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
                 }
+                if body.get("tools") and state.get("tool_calls", True):
+                    payload["choices"][0]["message"]["tool_calls"] = [{
+                        "id": "call-test", "type": "function",
+                        "function": {"name": "sheetbend_probe", "arguments": '{"ok":true}'},
+                    }]
+                    payload["choices"][0]["finish_reason"] = "tool_calls"
             self.send_response(status)
             if "location" in state:
                 self.send_header("Location", state["location"])
@@ -106,3 +117,19 @@ def endpoint() -> Iterator[dict[str, Any]]:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHEETBEND_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+
+def pytest_sessionstart(session):
+    """CI must not accidentally report success after skipping the LLM integration."""
+    import os
+    if os.environ.get("SHEETBEND_REQUIRE_LLM_TESTS") == "1":
+        try:
+            import llm  # noqa: F401
+            import openai  # noqa: F401
+        except ImportError as exc:
+            raise pytest.UsageError("The release gate requires the real LLM and OpenAI packages.") from exc

@@ -27,3 +27,7 @@ class ConnectionClosedError(SheetbendError):
 
 class ProbeError(SheetbendError):
     """A diagnostic response did not satisfy the probe's expected contract."""
+
+
+class CoordinationError(SheetbendError):
+    """Host-local request coordination failed; no unthrottled fallback is allowed."""

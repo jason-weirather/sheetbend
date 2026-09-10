@@ -2,10 +2,13 @@ name: tests
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      SHEETBEND_REQUIRE_LLM_TESTS: "1"
     strategy:
       matrix:
         python: ["3.13", "3.14"]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

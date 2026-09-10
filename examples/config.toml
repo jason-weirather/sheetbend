@@ -1,5 +1,5 @@
-# All addresses/model IDs are placeholders: replace them before probing.
-schema_version = 1
+# Model IDs and addresses here are placeholders. See mac-local-endpoint.toml for Ollama.
+schema_version = 2
 default_source = "local"
 
 [sources.local]
@@ -13,8 +13,8 @@ auth = { type = "none" }
 requests_per_minute = 60
 max_concurrent = 2
 
-[sources.local.capabilities]
-json_schema = true  # A declaration; run `sheetbend check local --test schema`.
+[sources.local.models."your-local-model"]
+capabilities = { json_schema = true }
 
 [sources.msk]
 protocol = "openai-compatible"
@@ -25,9 +25,15 @@ organization = "msk"
 auth = { type = "bearer", env = "MSK_LLM_API_KEY" }
 # ca_bundle = "/path/to/institution-ca.pem"
 
+[sources.msk.models."your-institutional-model"]
+capabilities = { json_schema = true }
+
 [sources.external]
 protocol = "openai-compatible"
 base_url = "https://api.example.net/v1"
 default_model = "your-external-model"
 scope = "external"
 auth = { type = "header", env = "EXTERNAL_LLM_API_KEY", header = "api-key" }
+
+[sources.external.models."your-external-model"]
+capabilities = {}
