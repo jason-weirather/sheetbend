@@ -12,7 +12,7 @@ from sheetbend.errors import ConfigError, SelectionError
 
 
 def test_packaged_schemas_are_valid():
-    for name in ("config", "check", "check-report", "activity"):
+    for name in ("config", "check", "check-report", "activity", "reasoning-plan"):
         Draft202012Validator.check_schema(load_schema(name))
 
 

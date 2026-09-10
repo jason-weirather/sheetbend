@@ -13,14 +13,14 @@ from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .errors import ConfigError
+from .errors import ConfigError, SelectionError
 
 PathLike = str | os.PathLike[str]
 
 
 def load_schema(name: str = "config") -> dict[str, Any]:
-    """Return an independent copy of a packaged schema: config, check, check-report, or activity."""
-    if name not in {"config", "check", "check-report", "activity"}:
+    """Return an independent packaged config, check, check-report, activity, or reasoning-plan schema."""
+    if name not in {"config", "check", "check-report", "activity", "reasoning-plan"}:
         raise ValueError("Unknown packaged schema name.")
     resource = files("sheetbend").joinpath("schemas", f"{name}.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
@@ -124,8 +124,16 @@ def validate_config(data: Mapping[str, Any]) -> dict[str, Any]:
     default = owned.get("default_source")
     if default is not None and default not in owned["sources"]:
         raise ConfigError(f"default_source {default!r} is not defined in sources.")
+    from .reasoning import resolve_reasoning
+
     for name, source in owned["sources"].items():
         _validate_endpoint(name, source)
         if source["default_model"] not in source["models"]:
             raise ConfigError(f"Source {name!r}: default_model must name a configured model.")
+        # The same resolver validates defaults here and explicit choices at connection time.
+        for model, definition in source["models"].items():
+            try:
+                resolve_reasoning(definition["reasoning"], source=name, model=model)
+            except SelectionError as exc:
+                raise ConfigError(f"Invalid configured reasoning default: {exc}") from exc
     return owned

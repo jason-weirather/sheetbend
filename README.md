@@ -14,8 +14,10 @@ limits, and diagnostics. [LLM](https://llm.datasette.io/) owns inference.** A
 connection yields an LLM model. Prompting, conversations, attachments, tools,
 schemas, and responses remain LLM's API, not another Sheetbend prompt language.
 
-Version 0.2 adds model-specific capabilities and `sheetbend top`: a content-free
-view of the applications and processes using your sources on this host.
+Model-specific capabilities and `sheetbend top` provide a content-free view of
+applications using your sources on this host. Version 0.4 adds explicit reasoning
+controls: application intent stays portable, while each model's configuration
+specifies its endpoint-specific request settings.
 
 ## Install
 
@@ -63,6 +65,11 @@ max_concurrent = 1
 
 [sources.laptop.models."qwen3.5:4b"]
 capabilities = { streaming = true, json_schema = true, vision = true, tools = true }
+
+[sources.laptop.models."qwen3.5:4b".reasoning]
+control = "reasoning_effort"
+default = "off"
+values = { off = "none", on = "medium" }
 ```
 
 `laptop` is a chosen source name, not a reserved word or privacy rule. `scope` is
@@ -213,6 +220,67 @@ objects, and no Sheetbend `prompt()` or `generate()` is introduced. Application
 validation remains appropriate: an endpoint accepting a schema is not proof of
 arbitrary schema enforcement.
 
+## Reasoning without model-name branches
+
+Applications express a choice on the connection, not a provider-specific body field:
+
+```python
+source = Registry.from_file().source("laptop", allowed_scopes={"local"})
+print(source.resolve_reasoning("off"))  # Offline plan; no credentials or request.
+
+with source.connect(reasoning="off", application="jupyter", tool="benchmark:off") as model:
+    response = model.prompt("Explain B-trees in about 250 words.", stream=False)
+    text = response.text()
+```
+
+`reasoning=None` (the default) uses the selected model's configured reasoning default.
+`"provider"` explicitly omits Sheetbend's reasoning override. `"off"`, `"on"`,
+`"low"`, `"medium"`, and `"high"` must be supported by the selected declaration.
+**Off never becomes low, and hiding output is not disabling generation.** An
+unsupported choice raises before credentials, integration imports, admission, or
+network work. No automatic switch to a different source or model occurs.
+
+The laptop example above maps `off` to `reasoning_effort="none"`, and `on` to the
+explicit enabling value `"medium"`. It deliberately does not advertise separate
+low/medium/high quality tiers for a model used here as an on/off thinker.
+Configuring `default="off"` makes ordinary `connect()` calls use that choice;
+`connect(reasoning="on")` overrides it for one connection. Existing config files
+are not edited and keep their previous provider behavior until you configure this.
+
+For a Qwen deployment using a supported vLLM/SGLang-style chat template instead:
+
+```toml
+[sources.work.models."your-served-model".reasoning]
+control = "chat_template_kwargs"
+default = "off"
+```
+
+The same `connect(reasoning="off")` sends
+`chat_template_kwargs={"enable_thinking": false}` in the request body. There is
+no hostname/model-name guessing. Use this control only when that deployed template
+actually honors `enable_thinking`.
+
+`control="fixed-off"` explicitly declares a model with no separate thinking phase;
+`off` then needs no request parameter. `control="fixed-on"` cannot satisfy `off`.
+An omitted declaration means `control="unknown"`, not fixed-off: provider defaults
+remain usable, but explicit reasoning requirements fail until declared.
+
+`source.resolve_reasoning()` returns an immutable, printable `ReasoningPlan` with
+`to_dict()` defined by the packaged `reasoning-plan` schema. It records the choice,
+its origin, and the exact parameter/value to send. This is a declared request plan,
+**not evidence that the server honored it**. Save it alongside a benchmark result.
+The existing check/report/activity JSON contracts are unchanged; `top` does not
+add a reasoning column or claim to measure hidden reasoning tokens.
+
+Reasoning is a structured model property, not a `capabilities.reasoning` boolean.
+Use `connect(reasoning="on")` to require an enabled mode; ordinary capabilities
+such as `requires={"json_schema"}` work independently.
+
+[The reasoning guide](docs/reasoning.md) covers all declarations, defaults, native
+LLM options, provider limitations, and a small comparison benchmark. No new
+inference API, generic raw-body configuration, prompt suffix, or hidden retry is
+introduced.
+
 ## Inspect and verify
 
 ```bash
@@ -220,6 +288,8 @@ sheetbend sources
 sheetbend inspect laptop --json
 sheetbend check laptop                         # Catalog only
 sheetbend check laptop --test text
+sheetbend check laptop --test text --reasoning off
+sheetbend check laptop --test text --reasoning on
 sheetbend check laptop --test schema
 sheetbend check laptop --test stream
 sheetbend check laptop --test tools
@@ -228,6 +298,7 @@ sheetbend check laptop --all --json            # All six, including undeclared c
 sheetbend check external --test text --allow-external
 sheetbend schema --name config
 sheetbend schema --name check-report
+sheetbend schema --name reasoning-plan
 sheetbend version
 ```
 
@@ -235,6 +306,11 @@ Global `--config-path` precedes the subcommand. Offline `sources` and `inspect`
 show all configured scopes. Endpoint checks exclude external sources unless
 `--allow-external` is supplied. `version`, `schema`, and `top` do not need valid
 configuration. A failing check/report exits 1. `--all` and `--test` are exclusive.
+`--reasoning` applies to generation probes (including the five in `--all`), not the
+catalog. Without it, each model's configured default is used. A successful probe
+only establishes that the requested generation worked; it cannot prove a server
+actually disabled hidden reasoning. Check JSON remains unchanged; save the resolved
+reasoning plan separately when the setting is part of an experiment.
 
 Checks send fixed synthetic data, never user files or notebook variables. Text,
 schema, streaming, tools, and vision checks generate responses and may incur
@@ -337,7 +413,7 @@ vision, auth, and telemetry. Without the optional extra it is skipped locally,
 which is not an integration pass.
 
 `pyproject.toml` is the sole authored package version. The config, check,
-check-report, and activity schemas are packaged with `py.typed`. The experimental
+check-report, activity, and reasoning-plan schemas are packaged with `py.typed`. The experimental
 API and Apache-2.0 license remain. See [the branding notes](docs/branding.md) for
 the SVG logo assets and their knot construction.
 

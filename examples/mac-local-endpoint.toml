@@ -17,3 +17,8 @@ max_concurrent = 1
 
 [sources.laptop.models."qwen3.5:4b"]
 capabilities = { streaming = true, json_schema = true, vision = true, tools = true }
+
+[sources.laptop.models."qwen3.5:4b".reasoning]
+control = "reasoning_effort"
+default = "off"
+values = { off = "none", on = "medium" }

@@ -15,6 +15,9 @@ max_concurrent = 2
 
 [sources.local.models."your-local-model"]
 capabilities = { json_schema = true }
+# No reasoning declaration means provider behavior, not non-reasoning.
+# Add a model-specific .reasoning table after checking the deployed endpoint.
+# See docs/reasoning.md and mac-local-endpoint.toml for working syntax.
 
 [sources.msk]
 protocol = "openai-compatible"

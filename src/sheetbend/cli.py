@@ -15,6 +15,7 @@ from .errors import SheetbendError
 from .registry import Registry
 from .runtime.runtime import Runtime
 from .checks import TESTS
+from .reasoning import reasoning_choices
 
 
 def _errors(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -47,7 +48,7 @@ def version_command() -> None:
 
 
 @main.command("schema")
-@click.option("--name", type=click.Choice(["config", "check", "check-report", "activity"]), default="config")
+@click.option("--name", type=click.Choice(["config", "check", "check-report", "activity", "reasoning-plan"]), default="config")
 def schema_command(name: str) -> None:
     """Print a packaged JSON Schema."""
     _json(load_schema(name))
@@ -95,20 +96,28 @@ def inspect_command(config_path: Path | None, source_name: str | None, as_json: 
 @click.option("--test", type=click.Choice(TESTS), default="models")
 @click.option("--all", "all_tests", is_flag=True, help="Run all six probes, even undeclared capabilities.")
 @click.option("--model", help="Explicit diagnostic model ID; may be unconfigured.")
+@click.option(
+    "--reasoning", type=click.Choice(reasoning_choices()), default=None,
+    show_default="model's configured default",
+    help="Reasoning choice for generation probes; unsupported choices fail without fallback.",
+)
 @click.option("--allow-external", is_flag=True, help="Explicitly allow a synthetic probe to an external source.")
 @click.option("--json", "as_json", is_flag=True, help="Print a versioned diagnostic record/report.")
 @click.pass_context
 @_errors
 def check_command(
     ctx: click.Context, source_name: str | None, test: str, all_tests: bool,
-    model: str | None, allow_external: bool, as_json: bool,
+    model: str | None, reasoning: str | None, allow_external: bool, as_json: bool,
 ) -> None:
     """Verify one source. Generation probes send synthetic inputs and may cost money."""
     if all_tests and ctx.get_parameter_source("test") != click.core.ParameterSource.DEFAULT:
         raise click.UsageError("Use --all or --test, not both.")
+    if not all_tests and test == "models" and reasoning is not None:
+        raise click.UsageError("--reasoning needs a generation --test or --all; the catalog does not generate.")
     scopes = ("local", "institutional", "external") if allow_external else ("local", "institutional")
     source = Registry.from_file(ctx.obj).source(source_name, allowed_scopes=scopes)
-    result = source.check_all(model=model) if all_tests else source.check(test=test, model=model)
+    result = (source.check_all(model=model, reasoning=reasoning) if all_tests
+              else source.check(test=test, model=model, reasoning=reasoning))
     if as_json:
         _json(result.to_dict())
     else:

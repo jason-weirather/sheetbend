@@ -26,7 +26,9 @@ def test_diagnostic_response_interpretation(config, monkeypatch, test, text, exp
         return SimpleNamespace(text=lambda: text)
 
     @contextmanager
-    def connect(model, *, probe_capability=None, probe=False, application=None, tool=None):
+    def connect(
+        model, *, probe_capability=None, probe=False, reasoning=None, application=None, tool=None,
+    ):
         assert probe is True
         assert application == "sheetbend"
         assert tool == f"check:{test}"

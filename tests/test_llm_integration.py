@@ -188,3 +188,86 @@ def test_real_combined_report(config, endpoint):
     assert report.ok, str(report)
     Draft202012Validator(load_schema("check-report")).validate(report.to_dict())
     assert len(endpoint["requests"]) == 6
+
+
+@pytest.mark.parametrize("control, choice, expected", [
+    ("reasoning_effort", "off", {"reasoning_effort": "none"}),
+    ("reasoning_effort", "on", {"reasoning_effort": "medium"}),
+    ("reasoning_effort", "low", {"reasoning_effort": "low"}),
+    ("reasoning_effort", "provider", {}),
+    ("chat_template_kwargs", "off", {"chat_template_kwargs": {"enable_thinking": False}}),
+    ("chat_template_kwargs", "on", {"chat_template_kwargs": {"enable_thinking": True}}),
+    ("fixed-off", "off", {}),
+    ("fixed-on", "on", {}),
+])
+@pytest.mark.parametrize("stream", [False, True])
+def test_real_reasoning_controls_on_wire(config, endpoint, control, choice, expected, stream):
+    declaration = {"control": control}
+    if control == "reasoning_effort":
+        declaration["values"] = {"off": "none", "on": "medium", "low": "low"}
+    config["sources"]["local"]["models"]["test-model"]["reasoning"] = declaration
+    source = source_at(config, endpoint)
+    with source.connect(reasoning=choice, application="test", tool="reasoning") as model:
+        response = model.prompt("Do not rewrite this prompt.", stream=stream)
+        assert response.text() == "OK"
+    request = endpoint["requests"][-1]
+    body = request["body"]
+    actual = {key: body[key] for key in ("reasoning_effort", "chat_template_kwargs") if key in body}
+    assert actual == expected
+    assert "extra_body" not in body
+    assert body["messages"] == [{"role": "user", "content": "Do not rewrite this prompt."}]
+    assert "authorization" not in {key.lower() for key in request["headers"]}
+    assert len(endpoint["requests"]) == 1
+
+
+def test_real_configured_default_and_conversation(config, endpoint):
+    config["sources"]["local"]["models"]["test-model"]["reasoning"] = {
+        "control": "reasoning_effort", "default": "off", "values": {"off": "none", "on": "medium"},
+    }
+    source = source_at(config, endpoint)
+    with source.connect() as model:
+        conversation = model.conversation()
+        assert conversation.prompt("First", stream=False).text() == "OK"
+        assert conversation.prompt("Second", stream=False).text() == "OK"
+    assert all(request["body"]["reasoning_effort"] == "none" for request in endpoint["requests"])
+    with source.connect(reasoning="on") as model:
+        assert model.prompt("Third", stream=False).text() == "OK"
+    assert endpoint["requests"][-1]["body"]["reasoning_effort"] == "medium"
+
+
+def test_real_bound_reasoning_rejects_native_override_before_request(config, endpoint):
+    from sheetbend.errors import SelectionError
+    config["sources"]["local"]["models"]["test-model"]["reasoning"] = {
+        "control": "reasoning_effort", "values": {"off": "none", "on": "medium", "high": "high"},
+    }
+    source = source_at(config, endpoint)
+    with source.connect(reasoning="off") as model:
+        with pytest.raises(SelectionError, match="bound"):
+            model.prompt("Hello", stream=False, options={"reasoning_effort": "high"}).text()
+    assert endpoint["requests"] == []
+    assert Runtime().snapshot()["requests"] == []
+
+
+def test_real_native_effort_is_explicit_and_declared(config, endpoint):
+    from sheetbend.errors import SelectionError
+    config["sources"]["local"]["models"]["test-model"]["reasoning"] = {
+        "control": "reasoning_effort", "values": {"off": "none", "on": "medium", "high": "high"},
+    }
+    source = source_at(config, endpoint)
+    with source.connect(reasoning="provider") as model:
+        assert model.prompt("Hello", stream=False, options={"reasoning_effort": "high"}).text() == "OK"
+        with pytest.raises(SelectionError, match="not declared"):
+            model.prompt("No low declaration", stream=False, options={"reasoning_effort": "low"}).text()
+    assert len(endpoint["requests"]) == 1
+    assert endpoint["requests"][0]["body"]["reasoning_effort"] == "high"
+
+
+def test_real_check_all_uses_requested_reasoning(config, endpoint):
+    config["sources"]["local"]["models"]["test-model"]["reasoning"] = {
+        "control": "reasoning_effort", "values": {"off": "none", "on": "medium"},
+    }
+    report = source_at(config, endpoint).check_all(reasoning="off")
+    assert report.ok, str(report)
+    generations = [r for r in endpoint["requests"] if r["body"] is not None]
+    assert len(generations) == 5
+    assert all(r["body"]["reasoning_effort"] == "none" for r in generations)

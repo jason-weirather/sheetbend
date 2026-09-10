@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:reasoning-plan:1",
+  "title": "Sheetbend declared reasoning request plan, version 1",
+  "description": "An offline resolution, not a provider observation or a guarantee of reasoning, cost, or latency. Contains no credentials or prompt data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "model",
+    "requested",
+    "selected",
+    "origin",
+    "control",
+    "parameter",
+    "value"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "requested": {
+      "enum": [
+        null,
+        "provider",
+        "off",
+        "on",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "selected": {
+      "$ref": "#/$defs/choice"
+    },
+    "origin": {
+      "enum": [
+        "caller",
+        "model-default"
+      ]
+    },
+    "control": {
+      "enum": [
+        "unknown",
+        "fixed-off",
+        "fixed-on",
+        "reasoning_effort",
+        "chat_template_kwargs"
+      ]
+    },
+    "parameter": {
+      "enum": [
+        null,
+        "reasoning_effort",
+        "chat_template_kwargs.enable_thinking"
+      ]
+    },
+    "value": {
+      "type": [
+        "string",
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "parameter": {
+          "const": null
+        },
+        "value": {
+          "const": null
+        }
+      }
+    },
+    {
+      "properties": {
+        "parameter": {
+          "const": "reasoning_effort"
+        },
+        "value": {
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "properties": {
+        "parameter": {
+          "const": "chat_template_kwargs.enable_thinking"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "choice": {
+      "type": "string",
+      "enum": [
+        "provider",
+        "off",
+        "on",
+        "low",
+        "medium",
+        "high"
+      ],
+      "description": "provider sends no Sheetbend reasoning control. Other choices must be explicitly supported by this model declaration. off never means low or hidden output."
+    }
+  }
+}

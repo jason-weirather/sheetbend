@@ -294,8 +294,108 @@
         "capabilities": {
           "$ref": "#/$defs/capabilities",
           "default": {}
+        },
+        "reasoning": {
+          "$ref": "#/$defs/reasoning",
+          "default": {}
         }
       }
+    },
+    "reasoning_choice": {
+      "type": "string",
+      "enum": [
+        "provider",
+        "off",
+        "on",
+        "low",
+        "medium",
+        "high"
+      ],
+      "description": "provider sends no Sheetbend reasoning control. Other choices must be explicitly supported by this model declaration. off never means low or hidden output."
+    },
+    "reasoning": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "fixed-off",
+            "fixed-on",
+            "reasoning_effort",
+            "chat_template_kwargs"
+          ],
+          "default": "unknown",
+          "description": "unknown is undeclared, not non-reasoning. fixed-off/on describe fixed server behavior. reasoning_effort uses the declared values. chat_template_kwargs sends enable_thinking as a boolean."
+        },
+        "default": {
+          "$ref": "#/$defs/reasoning_choice",
+          "default": "provider"
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "off": {
+              "const": "none",
+              "type": "string"
+            },
+            "on": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            "low": {
+              "const": "low",
+              "type": "string"
+            },
+            "medium": {
+              "const": "medium",
+              "type": "string"
+            },
+            "high": {
+              "const": "high",
+              "type": "string"
+            }
+          },
+          "description": "Only for reasoning_effort. List choices the served model actually supports. on explicitly chooses an enabling effort; declare low/medium/high only for genuinely distinct effort levels."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "control": {
+                "const": "reasoning_effort"
+              }
+            },
+            "required": [
+              "control"
+            ]
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "values"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Model/deployment-specific translation for portable reasoning requests. Defaults must resolve under this declaration. No name guessing, prompt rewriting, best-effort downgrade, or backend detection."
     }
   }
 }

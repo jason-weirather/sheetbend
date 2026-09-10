@@ -70,7 +70,7 @@ def test_valid_requirements_and_identity_forwarded(config, monkeypatch):
     monkeypatch.setattr(source, "_connect", connect)
     with source.connect(requires=["json_schema"], application="downrange", tool="stain-qc") as model:
         assert model == "sentinel"
-    assert seen == [("test-model", {"application": "downrange", "tool": "stain-qc"})]
+    assert seen == [("test-model", {"reasoning": None, "application": "downrange", "tool": "stain-qc"})]
 
 
 def test_probe_of_unknown_model_does_not_inherit_default_model(config):

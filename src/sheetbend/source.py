@@ -14,6 +14,7 @@ from .errors import CredentialError, DependencyError, ProbeError, SelectionError
 from .config import load_schema, _apply_defaults
 from .runtime.runtime import _Admission
 from .runtime.process import caller_labels
+from .reasoning import ReasoningPlan, resolve_reasoning, validate_reasoning_choice
 
 if TYPE_CHECKING:
     import llm
@@ -120,6 +121,21 @@ class Source:
         _apply_defaults(definition, schema["$defs"]["model"], schema)
         return definition
 
+    def resolve_reasoning(
+        self, reasoning: str | None = None, *, model: str | None = None,
+    ) -> ReasoningPlan:
+        """Inspect the selected model's reasoning plan without opening a connection.
+
+        None uses the configured default; "provider" explicitly sends no override.
+        Unsupported requirements raise rather than silently changing their meaning.
+        The model must be configured. The returned plan owns immutable scalar data.
+        """
+        selected = self._selected_model(model)
+        definition = self._model_definition(selected)
+        return resolve_reasoning(
+            definition["reasoning"], source=self.name, model=selected, requested=reasoning,
+        )
+
     def list_models(
         self, *, application: str | None = None, tool: str | None = None
     ) -> list[str]:
@@ -155,6 +171,7 @@ class Source:
     @contextmanager
     def connect(
         self, model: str | None = None, *, requires: Collection[str] = (),
+        reasoning: str | None = None,
         application: str | None = None, tool: str | None = None,
     ) -> Iterator["llm.KeyModel"]:
         """Yield an LLM model with explicit lifetime and model capability requirements.
@@ -163,6 +180,9 @@ class Source:
         sending probes; nothing reroutes or falls back. Labels describe the caller
         in host-local telemetry, not model tools or security identities. Consume
         lazy responses inside this context and finish workers before leaving it.
+        reasoning=None uses this model's configured default. Explicit choices bind
+        the connection; "provider" sends no override. Unsupported choices fail before
+        credentials, integration imports, runtime admission, or network requests.
         """
         selected = self._selected_model(model)
         capabilities = self._model_definition(selected)["capabilities"]
@@ -176,16 +196,23 @@ class Source:
         if missing:
             raise SelectionError(f"Model {selected!r} does not declare: {', '.join(sorted(missing))}.")
         application, tool = caller_labels(application, tool)
-        with self._connect(selected, application=application, tool=tool) as connected:
+        with self._connect(
+            selected, reasoning=reasoning, application=application, tool=tool,
+        ) as connected:
             yield connected
 
     @contextmanager
     def _connect(
         self, model: str, *, probe_capability: str | None = None, probe: bool = False,
+        reasoning: str | None = None,
         application: str | None = None, tool: str | None = None,
     ) -> Iterator["llm.KeyModel"]:
         definition = self._model_definition(model, probe=probe)
         capabilities = definition["capabilities"]
+        plan = resolve_reasoning(
+            definition["reasoning"], source=self.name, model=model, requested=reasoning,
+        )
+        efforts = tuple(definition["reasoning"].get("values", {}).values())
         if probe_capability is not None:
             capabilities[probe_capability] = True
         try:
@@ -193,31 +220,48 @@ class Source:
         except ImportError as exc:
             raise DependencyError("LLM integration requires: pip install 'sheetbend[llm]'") from exc
         with connected_model(
-            self, model=model, capabilities=capabilities, application=application, tool=tool
+            self, model=model, capabilities=capabilities, reasoning_plan=plan,
+            reasoning_efforts=efforts, application=application, tool=tool,
         ) as connected:
             yield connected
 
-    def check(self, *, test: str = "models", model: str | None = None) -> "CheckResult":
+    def check(
+        self, *, test: str = "models", model: str | None = None, reasoning: str | None = None,
+    ) -> "CheckResult":
         """Run one explicit synthetic diagnostic; it never changes declarations.
 
         Generation probes may incur cost. Explicit model IDs may be unconfigured.
         Tools only validates a proposed harmless call; it does not execute code.
+        reasoning applies only to generation, using the same declared model control
+        as connect(). A passing check does not prove that hidden reasoning stopped.
         """
         from .checks import check_source
 
-        return check_source(self, test=test, model=self._selected_model(model, probe=True))
+        validate_reasoning_choice(reasoning)
+        if test == "models" and reasoning is not None:
+            raise ValueError("A model catalog check does not generate; do not set reasoning.")
+        return check_source(
+            self, test=test, model=self._selected_model(model, probe=True), reasoning=reasoning,
+        )
 
-    def check_all(self, *, model: str | None = None) -> "CheckReport":
+    def check_all(
+        self, *, model: str | None = None, reasoning: str | None = None,
+    ) -> "CheckReport":
         """Explicitly run all six synthetic probes and collect a versioned report.
 
         Unlike ordinary operations this diagnostic intentionally collects failures.
         All capability probes run, including undeclared capabilities. No config edits.
+        reasoning applies to the five generation probes, never the catalog.
         """
         from .check_result import CheckReport
         from .checks import TESTS
 
+        validate_reasoning_choice(reasoning)
         selected = self._selected_model(model, probe=True)
-        return CheckReport(tuple(self.check(test=test, model=selected) for test in TESTS))
+        return CheckReport(tuple(
+            self.check(test=test, model=selected, reasoning=None if test == "models" else reasoning)
+            for test in TESTS
+        ))
 
     def __repr__(self) -> str:
         return f"Source(name={self.name!r}, scope={self.scope!r}, model={self.default_model!r})"

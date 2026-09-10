@@ -31,10 +31,12 @@ def _probe_image() -> bytes:
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
-def _probe_generation(source: Source, *, test: str, model: str) -> None:
+def _probe_generation(
+    source: Source, *, test: str, model: str, reasoning: str | None = None,
+) -> None:
     capability = _CAPABILITY.get(test)
     with source._connect(
-        model, probe_capability=capability, probe=True,
+        model, probe_capability=capability, probe=True, reasoning=reasoning,
         application="sheetbend", tool=f"check:{test}",
     ) as connected:
         options: dict[str, Any] = {"stream": test == "stream"}
@@ -82,7 +84,9 @@ def _probe_generation(source: Source, *, test: str, model: str) -> None:
         raise ProbeError("The model did not identify the synthetic image's dominant color.")
 
 
-def check_source(source: Source, *, test: str, model: str) -> CheckResult:
+def check_source(
+    source: Source, *, test: str, model: str, reasoning: str | None = None,
+) -> CheckResult:
     if test not in TESTS:
         raise ValueError(f"test must be one of {list(TESTS)}.")
     started = time.monotonic()
@@ -96,7 +100,7 @@ def check_source(source: Source, *, test: str, model: str) -> CheckResult:
             model_ids = tuple(source.list_models(application="sheetbend", tool="check:models"))
             message = f"Listed {len(model_ids)} model(s); inference was not tested."
         else:
-            _probe_generation(source, test=test, model=model)
+            _probe_generation(source, test=test, model=model, reasoning=reasoning)
             message = {
                 "text": "Received nonempty text from a synthetic prompt.",
                 "schema": "Received JSON matching the probe schema; not proof of general schema enforcement.",

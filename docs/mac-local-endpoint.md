@@ -171,6 +171,11 @@ max_concurrent = 1
 
 [sources.laptop.models."qwen3.5:4b"]
 capabilities = { streaming = true, json_schema = true, vision = true, tools = true }
+
+[sources.laptop.models."qwen3.5:4b".reasoning]
+control = "reasoning_effort"
+default = "off"
+values = { off = "none", on = "medium" }
 ```
 
 Capabilities are declarations to verify on your installed endpoint, not results
@@ -183,6 +188,20 @@ sheetbend check laptop
 sheetbend check laptop --test text
 sheetbend check laptop --all
 ```
+
+The example config now disables the separate thinking phase by default through
+Ollama's OpenAI-compatible `reasoning_effort="none"` setting. To compare with the
+explicitly configured enabled mode:
+
+```bash
+sheetbend check laptop --test text --reasoning off
+sheetbend check laptop --test text --reasoning on
+```
+
+`on` maps to `"medium"` as an enabling wire value, not a measured or normalized
+reasoning budget. The server/model must honor the configured control. Existing
+user config files are not changed automatically; add the `.reasoning` table above
+to opt in. See [reasoning controls](reasoning.md) for defaults and portability.
 
 The first check is catalog-only. `--all` performs five generation probes plus the
 catalog. Local checks consume compute, not hosted API credits, and may include
