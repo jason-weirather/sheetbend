@@ -46,6 +46,14 @@ def test_no_auth_does_not_borrow_ambient_key(config, monkeypatch):
     assert Registry.from_dict(config).source().resolve_auth() == {}
 
 
+def test_bearer_placeholder_is_fixed_and_needs_no_environment(config, monkeypatch):
+    config["sources"]["local"]["auth"] = {"type": "bearer-placeholder"}
+    monkeypatch.setenv("OPENAI_API_KEY", "WRONG_KEY")
+    monkeypatch.delenv("TEST_KEY", raising=False)
+    headers = Registry.from_dict(config).source().resolve_auth()
+    assert headers == {"Authorization": "Bearer sheetbend"}
+
+
 def test_models_request_and_check_report(config, endpoint, monkeypatch):
     source = config["sources"]["local"]
     source["base_url"] = endpoint["base_url"] + "/"

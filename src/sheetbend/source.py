@@ -60,15 +60,19 @@ class Source:
         return deepcopy(self._definition)
 
     def resolve_auth(self) -> dict[str, str]:
-        """Resolve the configured auth to HTTP headers; returned values ARE secrets.
+        """Resolve configured auth to HTTP headers; returned values may be secrets.
 
         Nothing is cached, printed, written, or looked up in another client's key
-        store. Callers requesting this explicit escape hatch own its disclosure.
-        connect() resolves once per context, so reconnect after rotating a secret.
+        store. ``bearer-placeholder`` returns the fixed non-secret value
+        ``Authorization: Bearer sheetbend`` for endpoints that require bearer-shaped
+        authentication without validating a credential. Reconnect after rotating a
+        real secret.
         """
         auth = self._definition["auth"]
         if auth["type"] == "none":
             return {}
+        if auth["type"] == "bearer-placeholder":
+            return {"Authorization": "Bearer sheetbend"}
         env = auth["env"]
         secret = os.environ.get(env)
         if not secret or not secret.strip():

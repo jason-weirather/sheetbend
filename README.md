@@ -91,17 +91,21 @@ The required `auth` object accepts exactly these alternatives:
 
 ```toml
 auth = { type = "none" }
+auth = { type = "bearer-placeholder" }
 auth = { type = "bearer", env = "WORK_LLM_API_KEY" }
 auth = { type = "header", env = "INFERENCE_API_KEY", header = "api-key" }
 ```
 
-Do not paste all three into one source. The config holds references, not values.
-Credentials resolve at connection entry or once per catalog request. Reconnect
-after rotating them. There is no implicit OpenAI environment-key lookup, LLM key
-store lookup, shell command, or process-global environment modification.
+Choose exactly one form per source. `bearer-placeholder` sends the fixed, non-secret
+header `Authorization: Bearer sheetbend` for OpenAI-compatible endpoints that require
+a bearer-shaped header but do not validate the token. It accepts no `env` or literal
+credential value. Real bearer and custom-header credentials remain environment-backed.
+Credentials resolve at connection entry or once per catalog request. Reconnect after
+rotating them. There is no implicit OpenAI environment-key lookup, LLM key store
+lookup, shell command, literal secret field, or process-global environment modification.
 
-`source.resolve_auth()` is an explicit escape hatch returning **secret-bearing
-HTTP headers**. Its caller owns their disclosure. Normal `to_dict()`, `repr()`,
+`source.resolve_auth()` is an explicit escape hatch returning HTTP headers that **may
+contain secrets**. Its caller owns their disclosure. Normal `to_dict()`, `repr()`,
 and CLI inspection retain only configured references. Keep secrets out of source
 names, descriptions, labels, model IDs, and URL paths too. Environment variables
 are delivery mechanisms, not a secure vault. Third-party debug logging and Python

@@ -157,6 +157,7 @@
         "type": {
           "enum": [
             "none",
+            "bearer-placeholder",
             "bearer",
             "header"
           ]
@@ -178,6 +179,27 @@
           "properties": {
             "type": {
               "const": "none"
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "env"
+                ]
+              },
+              {
+                "required": [
+                  "header"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "bearer-placeholder"
             }
           },
           "not": {

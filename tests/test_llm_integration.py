@@ -65,6 +65,7 @@ def test_streaming_and_model_override(config, endpoint):
 
 @pytest.mark.parametrize("auth, expected", [
     ({"type": "none"}, {}),
+    ({"type": "bearer-placeholder"}, {"authorization": "Bearer sheetbend"}),
     ({"type": "bearer", "env": "TEST_KEY"}, {"authorization": "Bearer RIGHT_KEY"}),
     ({"type": "header", "env": "TEST_KEY", "header": "api-key"}, {"api-key": "RIGHT_KEY"}),
 ])

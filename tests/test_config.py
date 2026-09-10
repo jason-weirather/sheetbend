@@ -98,6 +98,8 @@ def test_nonfinite_numbers_rejected(config, value):
 
 @pytest.mark.parametrize("updates", [
     {"unknown": True}, {"protocol": "other"}, {"auth": {"type": "none", "env": "KEY"}},
+    {"auth": {"type": "bearer-placeholder", "env": "KEY"}},
+    {"auth": {"type": "bearer-placeholder", "header": "api-key"}},
     {"auth": {"type": "bearer"}}, {"auth": {"type": "header", "env": "KEY"}},
     {"auth": {"type": "bearer", "env": "KEY", "api_key": "SECRET_VALUE"}},
     {"rate_limit": {"max_concurrent": 0}}, {"rate_limit": {"requests_per_minute": -1}},
