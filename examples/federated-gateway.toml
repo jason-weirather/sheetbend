@@ -1,0 +1,54 @@
+# Run the documented SSH tunnel before using the peer source.
+# Remote model IDs are the aliases EXPORTED by that peer gateway.
+schema_version = 2
+default_source = "laptop"
+
+[credentials.studio-access]
+provider = "file"
+path = "secrets/studio-access.txt"
+
+[credentials.application]
+provider = "file"
+path = "secrets/application-token.txt"
+
+[sources.laptop]
+protocol = "openai-compatible"
+base_url = "http://127.0.0.1:8000/v1"
+default_model = "YOUR_LAPTOP_MODEL_ID"
+scope = "local"
+auth = { type = "none" }
+
+[sources.laptop.models."YOUR_LAPTOP_MODEL_ID"]
+capabilities = { chat = true, streaming = true }
+
+[sources.studio-peer]
+protocol = "openai-compatible"
+base_url = "http://127.0.0.1:18765/v1"
+default_model = "studio-chat"
+# It is remote processing, despite the loopback SSH tunnel address.
+# Personal machines outside an institutional boundary use external in schema 2.
+scope = "external"
+auth = { type = "bearer", credential = "studio-access" }
+timeout_seconds = 180
+
+[sources.studio-peer.rate_limit]
+max_concurrent = 2
+
+[sources.studio-peer.models.studio-chat]
+capabilities = { chat = true, streaming = true }
+
+[gateway]
+port = 8765
+allowed_scopes = ["local", "external"]
+
+[gateway.routes.laptop-chat]
+source = "laptop"
+model = "YOUR_LAPTOP_MODEL_ID"
+
+[gateway.routes.studio-chat]
+source = "studio-peer"
+model = "studio-chat"
+
+[gateway.clients.application]
+credential = "application"
+routes = ["laptop-chat", "studio-chat"]

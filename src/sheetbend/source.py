@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .errors import CredentialError, DependencyError, ProbeError, SelectionError
+from .credentials import CredentialStore, header_secret
 from .config import load_schema, _apply_defaults
 from .runtime.runtime import _Admission
 from .runtime.process import caller_labels
@@ -29,12 +30,22 @@ class Source:
     """
 
     def __init__(
-        self, name: str, definition: Mapping[str, Any], *, base_dir: Path, namespace: str
+        self, name: str, definition: Mapping[str, Any], *, base_dir: Path, namespace: str,
+        credentials: CredentialStore | None = None,
     ) -> None:
         self._name = name
         self._definition = deepcopy(dict(definition))
         self._base_dir = base_dir
-        self._admission = _Admission(namespace, name, definition)
+        self._credentials = credentials or CredentialStore({}, base_dir)
+        runtime_definition = deepcopy(dict(definition))
+        reference = definition["auth"].get("credential")
+        if reference is not None:
+            spec = self._credentials.definition(reference)
+            if spec["provider"] == "file":
+                path = Path(spec["path"]).expanduser()
+                spec["path"] = str(path if path.is_absolute() else base_dir / path)
+            runtime_definition["credential_reference"] = spec
+        self._admission = _Admission(namespace, name, runtime_definition)
 
     @property
     def name(self) -> str:
@@ -74,12 +85,14 @@ class Source:
             return {}
         if auth["type"] == "bearer-placeholder":
             return {"Authorization": "Bearer sheetbend"}
-        env = auth["env"]
-        secret = os.environ.get(env)
-        if not secret or not secret.strip():
-            raise CredentialError(f"Source {self.name!r}: set environment variable {env}.")
-        if secret != secret.strip() or any(ord(c) < 32 or ord(c) > 126 for c in secret):
-            raise CredentialError(f"Source {self.name!r}: {env} is not a safe HTTP header value.")
+        if "credential" in auth:
+            secret = self._credentials.resolve(auth["credential"])
+        else:
+            env = auth["env"]
+            secret = os.environ.get(env)
+            if not secret:
+                raise CredentialError(f"Source {self.name!r}: set environment variable {env}.")
+            secret = header_secret(secret)
         if auth["type"] == "bearer":
             return {"Authorization": f"Bearer {secret}"}
         return {auth["header"]: secret}
@@ -137,7 +150,9 @@ class Source:
         )
 
     def list_models(
-        self, *, application: str | None = None, tool: str | None = None
+        self, *, application: str | None = None, tool: str | None = None,
+        timeout_seconds: float | None = None, queue_timeout_seconds: float | None = None,
+        _headers: Mapping[str, str] | None = None,
     ) -> list[str]:
         """Explicitly GET the endpoint's /models catalog, without generating text.
 
@@ -145,22 +160,28 @@ class Source:
         cross-origin links, redirects, retries, or inferred alternative paths.
         """
         application, tool = caller_labels(application, tool)
-        headers = self.resolve_auth()
+        headers = self.resolve_auth() if _headers is None else dict(_headers)
         with httpx.Client(
             headers=headers,
-            timeout=self._definition["timeout_seconds"],
+            timeout=self._definition["timeout_seconds"] if timeout_seconds is None else timeout_seconds,
             verify=self._tls_context(),
             trust_env=False,
             follow_redirects=False,
         ) as client, self._admission.acquire(
-            model=None, operation="models", application=application, tool=tool
+            model=None, operation="models", application=application, tool=tool,
+            wait_timeout=queue_timeout_seconds
         ):
-            response = client.get(self.base_url.rstrip("/") + "/models")
-            response.raise_for_status()
-            try:
-                body = response.json()
-            except ValueError as exc:
-                raise ProbeError("The model catalog is not JSON.") from exc
+            from .wire import read_json_response
+            with client.stream("GET", self.base_url.rstrip("/") + "/models") as response:
+                response.raise_for_status()
+                body = read_json_response(response, limit=1048576)
+        if self._definition["catalog_format"] == "typesafe":
+            if not isinstance(body, dict) or not isinstance(body.get("models"), list):
+                raise ProbeError("The TypeSafe catalog must contain a models array.")
+            rows = body["models"]
+            if any(not isinstance(row, dict) or not isinstance(row.get("name"), str) for row in rows):
+                raise ProbeError("Each TypeSafe catalog entry must have a string name.")
+            return [row["name"] for row in rows]
         if not isinstance(body, dict) or not isinstance(body.get("data"), list):
             raise ProbeError("The model catalog must contain a data array.")
         models = body["data"]
@@ -189,6 +210,9 @@ class Source:
         if requires is None or isinstance(requires, str):
             raise TypeError("requires must be a collection of capability names.")
         requirements = set(requires)
+        if "system_one" in requirements:
+            raise SelectionError("Use Source.decide() for the System One interface, not connect().")
+        requirements.add("chat")
         unknown = requirements - capabilities.keys()
         if unknown:
             raise ValueError(f"Unknown capabilities: {sorted(unknown)}")
@@ -238,8 +262,8 @@ class Source:
         from .checks import check_source
 
         validate_reasoning_choice(reasoning)
-        if test == "models" and reasoning is not None:
-            raise ValueError("A model catalog check does not generate; do not set reasoning.")
+        if test in {"models", "credentials", "system_one"} and reasoning is not None:
+            raise ValueError("This check does not generate chat; do not set reasoning.")
         return check_source(
             self, test=test, model=self._selected_model(model, probe=True), reasoning=reasoning,
         )
@@ -254,14 +278,49 @@ class Source:
         reasoning applies to the five generation probes, never the catalog.
         """
         from .check_result import CheckReport
-        from .checks import TESTS
-
         validate_reasoning_choice(reasoning)
         selected = self._selected_model(model, probe=True)
         return CheckReport(tuple(
-            self.check(test=test, model=selected, reasoning=None if test == "models" else reasoning)
-            for test in TESTS
+            self.check(test=test, model=selected, reasoning=None if test in {"models", "system_one"} else reasoning)
+            for test in self._check_tests(selected)
         ))
+
+    def _check_tests(self, model: str) -> tuple[str, ...]:
+        definition = self._model_definition(model, probe=True)
+        caps = definition["capabilities"]
+        tests = ("models",)
+        if caps["chat"]:
+            tests += ("text", "schema", "stream", "tools", "vision")
+        if caps["system_one"]:
+            tests += ("system_one",)
+        return tests
+
+    def decide(
+        self, state: Any, questions: Mapping[str, Any], *, model: str | None = None,
+        application: str | None = None, tool: str | None = None, _probe: bool = False,
+    ) -> dict[str, Any]:
+        """Call the native System One interface. Probabilities are not a calibration guarantee."""
+        from .wire import prepare_system_one, read_json_response, validate_answers, token_usage
+        selected = self._selected_model(model, probe=_probe)
+        definition = self._model_definition(selected, probe=_probe)
+        if not definition["capabilities"]["system_one"] and not _probe:
+            raise SelectionError("Selected model does not declare system_one.")
+        payload = prepare_system_one({"model": selected, "state": state, "questions": dict(questions)})
+        application, tool = caller_labels(application, tool)
+        headers = self.resolve_auth()
+        with httpx.Client(headers=headers, verify=self._tls_context(), trust_env=False,
+                          follow_redirects=False, timeout=self._definition["timeout_seconds"]) as client:
+            with self._admission.acquire(model=selected, operation="system_one",
+                                         application=application, tool=tool) as request:
+                with client.stream("POST", self.base_url.rstrip("/") + "/systemone",
+                                   json=payload) as response:
+                    if not response.is_success:
+                        raise ProbeError(f"Provider returned HTTP {response.status_code}.")
+                    result = read_json_response(response)
+                validate_answers(payload, result)
+                input_tokens, output_tokens = token_usage(result)
+                request.finish("done", input_tokens=input_tokens, output_tokens=output_tokens)
+                return result
 
     def __repr__(self) -> str:
         return f"Source(name={self.name!r}, scope={self.scope!r}, model={self.default_model!r})"

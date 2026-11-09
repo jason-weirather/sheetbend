@@ -34,7 +34,9 @@
         "schema",
         "stream",
         "tools",
-        "vision"
+        "vision",
+        "credentials",
+        "system_one"
       ]
     },
     "ok": {

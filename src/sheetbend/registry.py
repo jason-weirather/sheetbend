@@ -10,6 +10,7 @@ from typing import Any
 from .config import PathLike, select_config_path, validate_config
 from .errors import ConfigError, SelectionError
 from .source import Source
+from .credentials import CredentialStore
 
 
 class Registry:
@@ -25,8 +26,9 @@ class Registry:
         self.config_path = Path(config_path).expanduser().absolute() if config_path is not None else None
         namespace = str(self.config_path.resolve()) if self.config_path is not None else f"memory:{uuid.uuid4()}"
         base_dir = self.config_path.parent if self.config_path is not None else Path.cwd()
+        self.credentials = CredentialStore(self._data.get("credentials", {}), base_dir)
         self._sources = {
-            name: Source(name, definition, base_dir=base_dir, namespace=namespace)
+            name: Source(name, definition, base_dir=base_dir, namespace=namespace, credentials=self.credentials)
             for name, definition in self._data["sources"].items()
         }
 

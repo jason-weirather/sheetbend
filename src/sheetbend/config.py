@@ -20,7 +20,7 @@ PathLike = str | os.PathLike[str]
 
 def load_schema(name: str = "config") -> dict[str, Any]:
     """Return an independent packaged config, check, check-report, activity, or reasoning-plan schema."""
-    if name not in {"config", "check", "check-report", "activity", "reasoning-plan"}:
+    if name not in {"config", "check", "check-report", "activity", "reasoning-plan", "dashboard"}:
         raise ValueError("Unknown packaged schema name.")
     resource = files("sheetbend").joinpath("schemas", f"{name}.schema.json")
     return json.loads(resource.read_text(encoding="utf-8"))
@@ -136,4 +136,28 @@ def validate_config(data: Mapping[str, Any]) -> dict[str, Any]:
                 resolve_reasoning(definition["reasoning"], source=name, model=model)
             except SelectionError as exc:
                 raise ConfigError(f"Invalid configured reasoning default: {exc}") from exc
+    credentials = owned.get("credentials", {})
+    for source in owned["sources"].values():
+        reference = source["auth"].get("credential")
+        if reference is not None and reference not in credentials:
+            raise ConfigError("Source auth references an undefined credential.")
+    gateway = owned.get("gateway")
+    if gateway is not None:
+        for route in gateway["routes"].values():
+            source = owned["sources"].get(route["source"])
+            if source is None or route["model"] not in source["models"]:
+                raise ConfigError("Gateway route references an undefined source or model.")
+            if source["scope"] not in gateway["allowed_scopes"]:
+                raise ConfigError("Gateway route is outside gateway.allowed_scopes.")
+            try:
+                resolve_reasoning(source["models"][route["model"]]["reasoning"],
+                                  source=route["source"], model=route["model"],
+                                  requested=route.get("reasoning"))
+            except SelectionError:
+                raise ConfigError("Gateway route requests an unsupported reasoning mode.") from None
+        for client in gateway["clients"].values():
+            if client["credential"] not in credentials:
+                raise ConfigError("Gateway client references an undefined credential.")
+            if set(client["routes"]) - gateway["routes"].keys():
+                raise ConfigError("Gateway client references an undefined route.")
     return owned

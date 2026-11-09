@@ -9,15 +9,30 @@ Discover, inspect, and verify intelligence sources from one explicit configurati
 Use the same names in a notebook, command-line application, or Python library,
 without teaching every application its own endpoint and credential conventions.
 
-**Sheetbend owns connection configuration, caller restrictions, shared request
-limits, and diagnostics. [LLM](https://llm.datasette.io/) owns inference.** A
-connection yields an LLM model. Prompting, conversations, attachments, tools,
-schemas, and responses remain LLM's API, not another Sheetbend prompt language.
+**One registry for Python applications and authenticated HTTP clients.** Sheetbend
+owns connection configuration, credential references, caller restrictions, shared
+request limits, and diagnostics. Python chat connections yield native
+[LLM](https://llm.datasette.io/) models. The optional gateway forwards a bounded
+Chat Completions interface and native System One decisions without introducing
+another chat prompt language.
 
 Model-specific capabilities and `sheetbend top` provide a content-free view of
 applications using your sources on this host. Version 0.4 added explicit reasoning
 controls. Version 0.5 makes `allowed_scopes` an ordered source preference: caller
 boundaries can select the best permitted scope without hard-coding a source name.
+
+**Version 0.6 adds gateway delivery, not secret export.** `sheetbend run` launches
+an application with an ephemeral gateway URL/token; `sheetbend serve` exposes
+explicitly granted model routes. Upstream keys stay in the gateway. Credentials
+can come from environment variables, owner-only text/TOML files, or macOS Keychain.
+`sheetbend dashboard` shows configured models, references, and routes offline;
+`--probe` adds cheap, cached access/catalog checks. System One is an independent
+model capability and native HTTP/Python interface.
+
+Start with the [Mac Studio quickstart](docs/studio-quickstart.md), then see
+[credential references](docs/credentials.md), [gateway adapters and HTTP endpoints](docs/gateway.md),
+[multi-computer configuration](docs/networking.md), and [System One](docs/system-one.md).
+The [0.6 migration notes](docs/migration-0.6.md) summarize compatibility and limits.
 
 ## Install
 
@@ -31,7 +46,14 @@ python -m pip install -e '.[llm]'
 ```
 
 `pip install -e .` is sufficient for configuration inspection, catalog checks, and
-runtime inspection. The `llm` extra adds inference and generation checks. The
+runtime inspection. The `llm` extra adds Python chat inference and chat generation
+checks. Add `gateway` for the Uvicorn listener and subprocess launcher:
+
+```bash
+python -m pip install -e '.[llm,gateway]'
+```
+
+The
 adapter targets LLM 0.35 and OpenAI Python 3.x, with a deliberately bounded
 compatibility range. Sheetbend's data contracts are JSON Schemas, not Pydantic
 models; LLM owns any Pydantic dependency inside its inference interface.
@@ -95,21 +117,38 @@ source from ordered `allowed_scopes` without naming one.
 
 ### Authentication and transport
 
-The required `auth` object accepts exactly these alternatives:
+The required `auth` object selects an explicit transport and credential reference:
 
 ```toml
 auth = { type = "none" }
 auth = { type = "bearer-placeholder" }
 auth = { type = "bearer", env = "WORK_LLM_API_KEY" }
 auth = { type = "header", env = "INFERENCE_API_KEY", header = "api-key" }
+auth = { type = "bearer", credential = "omlx" }
 ```
+
+The named form refers to a top-level declaration such as:
+
+```toml
+[credentials.omlx]
+provider = "file"
+path = "secrets/omlx.txt"
+```
+
+That file contains one plaintext development key and must be user-owned, private
+(0600/0400), regular, and not a symlink. A `key` field selects one value from a
+private TOML file instead. `provider="env"` and `provider="keychain"` use the same
+reference contract. Native Azure retrieval is deferred; externally populated
+Azure-backed environment variables remain usable. See [credentials](docs/credentials.md).
+
 
 Choose exactly one form per source. `bearer-placeholder` sends the fixed, non-secret
 header `Authorization: Bearer sheetbend` for OpenAI-compatible endpoints that require
 a bearer-shaped header but do not validate the token. It accepts no `env` or literal
-credential value. Real bearer and custom-header credentials remain environment-backed.
-Credentials resolve at connection entry or once per catalog request. Reconnect after
-rotating them. There is no implicit OpenAI environment-key lookup, LLM key store
+credential value. Real bearer and custom-header credentials use exactly one of
+`env` or a named `credential`. Credentials resolve at connection entry or once per
+catalog/decision request. Reconnect after rotating them; restart gateways, which
+hold their resolved credentials for their process lifetime. There is no implicit OpenAI environment-key lookup, LLM key store
 lookup, shell command, literal secret field, or process-global environment modification.
 
 `source.resolve_auth()` is an explicit escape hatch returning HTTP headers that **may
@@ -119,8 +158,11 @@ names, descriptions, labels, model IDs, and URL paths too. Environment variables
 are delivery mechanisms, not a secure vault. Third-party debug logging and Python
 tracebacks can expose data outside Sheetbend's telemetry controls.
 
-`protocol = "openai-compatible"` currently means Chat Completions at
+`protocol = "openai-compatible"` means Chat Completions at
 `POST <base_url>/chat/completions` and the catalog at `GET <base_url>/models`.
+Models declaring `system_one` also support `POST <base_url>/systemone` through
+`Source.decide()` and the gateway. `catalog_format="typesafe"` explicitly selects
+`models[].name` instead of the default `data[].id` catalog shape.
 No inferred `/v1`, alternate endpoint, Responses routing, or provider plugin.
 A missing catalog route does not imply inference is unavailable; try a text check.
 
@@ -208,8 +250,8 @@ same source. Normal connections reject unconfigured IDs. `requires` checks the
 selected model's declarations before credentials, network work, or runtime file
 creation. It does not run paid probes, infer support, or choose an alternative.
 
-Capability defaults come from the packaged config schema: `streaming=true`,
-`system_prompt=true`, and `json_schema=vision=tools=false`. A probe may explicitly
+Capability defaults come from the packaged config schema: `chat=streaming=true`,
+`system_prompt=true`, and `json_schema=vision=tools=system_one=false`. A probe may explicitly
 try an undeclared capability or unconfigured model without changing these values.
 
 Application and tool labels are optional, connection-scoped display metadata.
@@ -322,7 +364,13 @@ sheetbend check laptop --test schema
 sheetbend check laptop --test stream
 sheetbend check laptop --test tools
 sheetbend check laptop --test vision
-sheetbend check laptop --all --json            # All six, including undeclared capabilities
+sheetbend check laptop --all --json            # Chat probes plus declared System One
+sheetbend check laptop --test credentials       # Credential read only; no endpoint request
+sheetbend check laptop --model EXACT_ID --test system_one
+sheetbend dashboard                            # Offline inventory
+sheetbend dashboard --probe --watch             # Cheap checks, at most once/minute
+sheetbend dashboard --test text --source laptop # One explicit inference test
+sheetbend dashboard --plain                     # ASCII fallback
 sheetbend check external --test text --allow-external
 sheetbend schema --name config
 sheetbend schema --name check-report
@@ -350,7 +398,10 @@ or certifications. Output includes a timestamp and the prior capability declarat
 
 `source.list_models()`, `source.check(test="schema")`, and `source.check_all()` are
 public library stages. Ordinary operations raise at the first failure; the
-explicit diagnostic report intentionally collects all six results. No automatic
+explicit diagnostic report intentionally collects its results. Chat-capable models
+run the original six checks; declared System One adds the native decision check.
+Decision-only models run catalog and System One checks. Explicit tests can probe
+undeclared support without changing configuration. No automatic
 startup probing, config rewriting, or client retries. Probes request short answers
 but do not impose a provider-independent token ceiling or cost guarantee.
 
@@ -389,8 +440,9 @@ bucket. Reload callers consistently and let recent starts age out of the 60-seco
 window. Different model capability declarations do not create extra request budgets.
 
 The host-local SQLite ledger is also the activity source. Short transactions reserve
-slots; no transaction remains open during inference or waiting. No daemon or
-background heartbeat thread. Dead-process cleanup checks PID **and process creation
+slots; no transaction remains open during inference or waiting. Runtime coordination
+requires no daemon or background heartbeat thread; the optional gateway is a
+separate foreground serving lifecycle. Dead-process cleanup checks PID **and process creation
 time**, not an inactivity timeout that could evict a live, paused request. The next
 request or snapshot performs cleanup. A runtime failure raises an error rather than
 silently allowing unlimited traffic. Coordination is cooperative, not a security
@@ -419,7 +471,9 @@ until reported, usually at completion. No guessed live token counter.
 
 Separate users and cluster nodes have separate coordination domains. A shared NFS
 home does not turn this into a cluster-wide quota service. Provider quotas remain
-authoritative. No token-per-minute limits, fairness guarantee, or cross-host routing.
+authoritative. No token-per-minute limits, fairness guarantee, or cluster-wide
+ledger. Explicit gateway routes may compose multiple hosts, with independent
+accounting at each hop; see [networking](docs/networking.md).
 `timeout_seconds` is the network operation/inactivity timeout, not a total request
 or queue deadline. Consume or close streams before starting work that would exceed
 their shared concurrency limit.
@@ -427,21 +481,24 @@ their shared concurrency limit.
 ## Development
 
 ```bash
-python -m pip install -e '.[llm,dev]'
-SHEETBEND_REQUIRE_LLM_TESTS=1 pytest
+python -m pip install -e '.[llm,gateway,dev]'
+SHEETBEND_REQUIRE_LLM_TESTS=1 SHEETBEND_REQUIRE_GATEWAY_TESTS=1 pytest
 ruff check .
 python -m pip wheel --no-deps --wheel-dir dist .
 ```
 
 CI runs Linux and macOS on Python 3.13 and 3.14 and requires the actual LLM/SDK
-integration module. Core tests use real SQLite, spawned processes, and loopback
+integration module and gateway dependencies. Gateway tests use actual Uvicorn,
+HTTPX, subprocesses, and two-hop HTTP routing, with synthetic loopback upstreams.
+Keychain tests substitute the OS command; they are not live macOS access tests.
+Core tests use real SQLite, spawned processes, and loopback
 HTTP; adapter unit tests are explicitly labeled test doubles. The actual integration
 module separately covers LLM prompting, schemas, conversations, streaming, tools,
 vision, auth, and telemetry. Without the optional extra it is skipped locally,
 which is not an integration pass.
 
 `pyproject.toml` is the sole authored package version. The config, check,
-check-report, activity, and reasoning-plan schemas are packaged with `py.typed`. The experimental
+check-report, activity, reasoning-plan, and dashboard schemas are packaged with `py.typed`. The experimental
 API and Apache-2.0 license remain. See [the branding notes](docs/branding.md) for
 the SVG logo assets and their knot construction.
 

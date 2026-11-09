@@ -25,6 +25,18 @@
       "additionalProperties": {
         "$ref": "#/$defs/source"
       }
+    },
+    "credentials": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/credential"
+      }
+    },
+    "gateway": {
+      "$ref": "#/$defs/gateway"
     }
   },
   "$defs": {
@@ -118,6 +130,14 @@
           "additionalProperties": {
             "$ref": "#/$defs/model"
           }
+        },
+        "catalog_format": {
+          "enum": [
+            "openai",
+            "typesafe"
+          ],
+          "default": "openai",
+          "description": "openai: data[].id; typesafe: models[].name. Explicit, not auto-detected."
         }
       },
       "allOf": [
@@ -172,6 +192,9 @@
           "not": {
             "pattern": "[\\r\\n]"
           }
+        },
+        "credential": {
+          "$ref": "#/$defs/name"
         }
       },
       "oneOf": [
@@ -191,6 +214,11 @@
               {
                 "required": [
                   "header"
+                ]
+              },
+              {
+                "required": [
+                  "credential"
                 ]
               }
             ]
@@ -213,6 +241,11 @@
                 "required": [
                   "header"
                 ]
+              },
+              {
+                "required": [
+                  "credential"
+                ]
               }
             ]
           }
@@ -223,14 +256,34 @@
               "const": "bearer"
             }
           },
-          "required": [
-            "env"
-          ],
+          "required": [],
           "not": {
             "required": [
               "header"
             ]
-          }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "env"
+              ],
+              "not": {
+                "required": [
+                  "credential"
+                ]
+              }
+            },
+            {
+              "required": [
+                "credential"
+              ],
+              "not": {
+                "required": [
+                  "env"
+                ]
+              }
+            }
+          ]
         },
         {
           "properties": {
@@ -239,8 +292,29 @@
             }
           },
           "required": [
-            "env",
             "header"
+          ],
+          "oneOf": [
+            {
+              "required": [
+                "env"
+              ],
+              "not": {
+                "required": [
+                  "credential"
+                ]
+              }
+            },
+            {
+              "required": [
+                "credential"
+              ],
+              "not": {
+                "required": [
+                  "env"
+                ]
+              }
+            }
           ]
         }
       ]
@@ -283,6 +357,16 @@
         "system_prompt": {
           "type": "boolean",
           "default": true
+        },
+        "chat": {
+          "type": "boolean",
+          "default": true,
+          "description": "Chat Completions. Set false for decision-only models."
+        },
+        "system_one": {
+          "type": "boolean",
+          "default": false,
+          "description": "Native typed decisions through POST <base_url>/systemone. Independent of reasoning off."
         }
       },
       "description": "Declarations for this model as served by this source. Probes do not change them."
@@ -396,6 +480,186 @@
         }
       ],
       "description": "Model/deployment-specific translation for portable reasoning requests. Defaults must resolve under this declaration. No name guessing, prompt rewriting, best-effort downgrade, or backend detection."
+    },
+    "credential": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "const": "env"
+            },
+            "name": {
+              "$ref": "#/$defs/env"
+            }
+          },
+          "required": [
+            "provider",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "const": "file"
+            },
+            "path": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "key": {
+              "$ref": "#/$defs/nonempty"
+            }
+          },
+          "required": [
+            "provider",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "const": "keychain"
+            },
+            "service": {
+              "$ref": "#/$defs/nonempty"
+            },
+            "account": {
+              "$ref": "#/$defs/nonempty"
+            }
+          },
+          "required": [
+            "provider",
+            "service",
+            "account"
+          ]
+        }
+      ]
+    },
+    "gateway_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/name"
+        },
+        "model": {
+          "$ref": "#/$defs/nonempty"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/reasoning_choice"
+        }
+      },
+      "required": [
+        "source",
+        "model"
+      ]
+    },
+    "gateway_client": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "credential": {
+          "$ref": "#/$defs/name"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "credential",
+        "routes"
+      ]
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 8765
+        },
+        "allowed_scopes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "local",
+              "institutional",
+              "external"
+            ]
+          },
+          "uniqueItems": true,
+          "default": [
+            "local",
+            "institutional"
+          ]
+        },
+        "routes": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/gateway_route"
+          }
+        },
+        "clients": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/name",
+            "maxLength": 72
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/gateway_client"
+          },
+          "default": {}
+        },
+        "max_body_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 67108864,
+          "default": 16777216
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 67108864,
+          "default": 33554432
+        },
+        "max_connections": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 1024,
+          "default": 64
+        },
+        "queue_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 300,
+          "default": 10
+        },
+        "request_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "default": 300
+        }
+      },
+      "required": [
+        "routes"
+      ]
     }
   }
 }

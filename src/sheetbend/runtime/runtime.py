@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from hashlib import sha256
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -160,7 +161,7 @@ class _Admission:
         self.bucket = _digest([namespace, name])
         self.name = name
         # Model declarations do not change the shared budget; connection identity does.
-        fields = ("base_url", "auth", "scope", "organization", "rate_limit")
+        fields = ("base_url", "auth", "scope", "organization", "rate_limit", "credential_reference")
         self.fingerprint = _digest({key: definition.get(key) for key in fields})
         self.limits = dict(definition["rate_limit"])
         self._runtime: Runtime | None = None
@@ -174,8 +175,12 @@ class _Admission:
     def acquire(
         self, *, model: str | None, operation: str, application: str | None = None,
         tool: str | None = None, cancelled: Event | None = None,
+        wait_timeout: float | None = None,
     ) -> _Request:
         """Reserve starts and concurrency atomically; wait outside the transaction."""
+        if wait_timeout is not None and (not math.isfinite(wait_timeout) or wait_timeout <= 0):
+            raise ValueError("wait_timeout must be positive and finite.")
+        deadline = None if wait_timeout is None else time.monotonic() + wait_timeout
         application, tool = caller_labels(application, tool)
         pid, process_started, process_instance = identity()
         request_id = str(uuid.uuid4())
@@ -186,6 +191,8 @@ class _Admission:
             while True:
                 if cancelled is not None and cancelled.is_set():
                     raise ConnectionClosedError("Connection closed while waiting for its request slot.")
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise CoordinationError("Request admission timed out.")
                 now, tick = time.time(), time.monotonic()
                 admitted = False
                 with store.transaction() as db:

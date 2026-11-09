@@ -1,0 +1,42 @@
+# Replace every YOUR_CHAT_MODEL_ID with the exact ID served by oMLX.
+# The referenced credential files are NOT included; see docs/studio-quickstart.md.
+schema_version = 2
+default_source = "studio"
+
+[credentials.omlx]
+provider = "file"
+path = "secrets/omlx.txt"
+
+[credentials.laptop]
+provider = "file"
+path = "secrets/laptop-token.txt"
+
+[sources.studio]
+protocol = "openai-compatible"
+base_url = "http://127.0.0.1:8000/v1"
+default_model = "YOUR_CHAT_MODEL_ID"
+scope = "local"
+auth = { type = "bearer", credential = "omlx" }
+timeout_seconds = 180
+
+[sources.studio.rate_limit]
+max_concurrent = 2
+requests_per_minute = 120
+
+[sources.studio.models."YOUR_CHAT_MODEL_ID"]
+# Enable tools/json_schema/vision only after checking this deployment.
+capabilities = { chat = true, streaming = true }
+
+[gateway]
+port = 8765
+allowed_scopes = ["local"]
+queue_timeout_seconds = 10
+request_timeout_seconds = 300
+
+[gateway.routes.studio-chat]
+source = "studio"
+model = "YOUR_CHAT_MODEL_ID"
+
+[gateway.clients.laptop]
+credential = "laptop"
+routes = ["studio-chat"]

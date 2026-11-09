@@ -1,0 +1,183 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "observed_at": {
+      "type": "number"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "local",
+              "institutional",
+              "external"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "string"
+          },
+          "credential_status": {
+            "enum": [
+              "unchecked",
+              "available",
+              "unavailable"
+            ]
+          },
+          "catalog_status": {
+            "enum": [
+              "unchecked",
+              "blocked",
+              "reachable",
+              "unavailable"
+            ]
+          },
+          "model_status": {
+            "enum": [
+              "unknown",
+              "listed",
+              "absent"
+            ]
+          },
+          "inference_status": {
+            "enum": [
+              "not_tested",
+              "passed",
+              "failed"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observed_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "inference_test": {
+            "enum": [
+              null,
+              "text",
+              "system_one"
+            ]
+          },
+          "inference_observed_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "scope",
+          "model",
+          "credential",
+          "credential_status",
+          "catalog_status",
+          "model_status",
+          "inference_status",
+          "capabilities",
+          "observed_at",
+          "inference_test",
+          "inference_observed_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "credentials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "env",
+              "file",
+              "keychain"
+            ]
+          },
+          "status": {
+            "enum": [
+              "unchecked",
+              "available",
+              "unavailable"
+            ]
+          },
+          "observed_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "provider",
+          "status",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "route": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "clients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "route",
+          "source",
+          "model",
+          "clients"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "observed_at",
+    "models",
+    "credentials",
+    "routes"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sheetbend:dashboard:1",
+  "title": "Sheetbend inventory and dated access observations"
+}

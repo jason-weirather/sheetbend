@@ -13,8 +13,8 @@ from .check_result import CheckResult
 from .errors import ProbeError, SheetbendError
 from .source import Source
 
-TESTS = ("models", "text", "schema", "stream", "tools", "vision")
-_CAPABILITY = {"schema": "json_schema", "stream": "streaming", "tools": "tools", "vision": "vision"}
+TESTS = ("models", "text", "schema", "stream", "tools", "vision", "credentials", "system_one")
+_CAPABILITY = {"schema": "json_schema", "stream": "streaming", "tools": "tools", "vision": "vision", "system_one": "system_one"}
 _PROBE_SCHEMA = {
     "type": "object", "properties": {"ok": {"type": "boolean", "enum": [True]}},
     "required": ["ok"], "additionalProperties": False,
@@ -96,7 +96,15 @@ def check_source(
                 if capability else None)
     model_ids: tuple[str, ...] = ()
     try:
-        if test == "models":
+        if test == "credentials":
+            source.resolve_auth()
+            message = "Credential is readable and header-safe; endpoint acceptance was not tested."
+        elif test == "system_one":
+            source.decide("The status is READY.", {"ready": {
+                "type": "noul", "instructions": "The status is READY.",
+            }}, model=model, application="sheetbend", tool="check:system_one", _probe=True)
+            message = "Received a valid typed decision; not an accuracy or calibration benchmark."
+        elif test == "models":
             model_ids = tuple(source.list_models(application="sheetbend", tool="check:models"))
             message = f"Listed {len(model_ids)} model(s); inference was not tested."
         else:

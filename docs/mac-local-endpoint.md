@@ -1,5 +1,8 @@
 # A local Sheetbend endpoint on a 24 GB Apple Silicon Mac
 
+For an existing oMLX server on a Studio, use the [Studio gateway quickstart](studio-quickstart.md).
+This guide retains the separate Ollama deployment workflow.
+
 ## Recommendation
 
 Start with **Ollama and `qwen3.5:4b`**. This prioritizes a convenient local endpoint,

@@ -133,3 +133,13 @@ def pytest_sessionstart(session):
             import openai  # noqa: F401
         except ImportError as exc:
             raise pytest.UsageError("The release gate requires the real LLM and OpenAI packages.") from exc
+
+
+@pytest.fixture(scope="session", autouse=True)
+def require_gateway_in_release_gate():
+    import os
+    if os.environ.get("SHEETBEND_REQUIRE_GATEWAY_TESTS") == "1":
+        try:
+            import uvicorn  # noqa: F401
+        except ImportError as exc:
+            raise pytest.UsageError("The release gate requires the real Uvicorn package.") from exc
